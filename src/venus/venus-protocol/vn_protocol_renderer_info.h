@@ -12,7 +12,11 @@
 
 struct vn_info_extension_table {
    union {
+<<<<<<< HEAD
       bool enabled[185];
+=======
+      bool enabled[179];
+>>>>>>> acaf0be7 (vkr: sync to latest protocol for v1.4.334)
       struct {
          bool ARM_rasterization_order_attachment_access;
          bool EXT_4444_formats;
@@ -203,7 +207,11 @@ struct vn_info_extension_table {
    };
 };
 
+<<<<<<< HEAD
 #define VN_INFO_EXTENSION_MAX_NUMBER (643)
+=======
+#define VN_INFO_EXTENSION_MAX_NUMBER (613)
+>>>>>>> acaf0be7 (vkr: sync to latest protocol for v1.4.334)
 
 struct vn_info_extension {
    const char *name;
@@ -212,8 +220,13 @@ struct vn_info_extension {
 };
 
 /* sorted by extension names for bsearch */
+<<<<<<< HEAD
 static const uint32_t _vn_info_extension_count = 185;
 static const struct vn_info_extension _vn_info_extensions[185] = {
+=======
+static const uint32_t _vn_info_extension_count = 179;
+static const struct vn_info_extension _vn_info_extensions[179] = {
+>>>>>>> acaf0be7 (vkr: sync to latest protocol for v1.4.334)
    { "VK_ARM_rasterization_order_attachment_access", 343, 1 },
    { "VK_EXT_4444_formats", 341, 1 },
    { "VK_EXT_attachment_feedback_loop_dynamic_state", 525, 1 },
