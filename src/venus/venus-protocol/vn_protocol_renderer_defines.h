@@ -464,6 +464,7 @@ typedef enum VkCommandTypeEXT {
     VK_COMMAND_TYPE_vkCmdSetDepthBias2EXT_EXT = 328,
     VK_COMMAND_TYPE_vkCmdSetAttachmentFeedbackLoopEnableEXT_EXT = 329,
     VK_COMMAND_TYPE_vkCmdSetDepthClampRangeEXT_EXT = 330,
+    VK_COMMAND_TYPE_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR_EXT = 331,
 } VkCommandTypeEXT;
 
 typedef enum VkCommandFlagBitsEXT {
@@ -2796,6 +2797,14 @@ struct vn_command_vkUnmapMemory2 {
     VkResult ret;
 };
 
+struct vn_command_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR {
+    VkPhysicalDevice physicalDevice;
+    uint32_t* pPropertyCount;
+    VkCooperativeMatrixPropertiesKHR* pProperties;
+
+    VkResult ret;
+};
+
 struct vn_command_vkCmdBindDescriptorSets2 {
     VkCommandBuffer commandBuffer;
     const VkBindDescriptorSetsInfo* pBindDescriptorSetsInfo;
@@ -3237,6 +3246,7 @@ struct vn_dispatch_context {
     void (*dispatch_vkGetDeviceImageSubresourceLayout)(struct vn_dispatch_context *ctx, struct vn_command_vkGetDeviceImageSubresourceLayout *args);
     void (*dispatch_vkMapMemory2)(struct vn_dispatch_context *ctx, struct vn_command_vkMapMemory2 *args);
     void (*dispatch_vkUnmapMemory2)(struct vn_dispatch_context *ctx, struct vn_command_vkUnmapMemory2 *args);
+    void (*dispatch_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR)(struct vn_dispatch_context *ctx, struct vn_command_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR *args);
     void (*dispatch_vkCmdBindDescriptorSets2)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdBindDescriptorSets2 *args);
     void (*dispatch_vkCmdPushConstants2)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdPushConstants2 *args);
     void (*dispatch_vkCmdPushDescriptorSet2)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdPushDescriptorSet2 *args);
