@@ -12,7 +12,7 @@
 
 struct vn_info_extension_table {
    union {
-      bool enabled[184];
+      bool enabled[185];
       struct {
          bool ARM_rasterization_order_attachment_access;
          bool EXT_4444_formats;
@@ -59,6 +59,7 @@ struct vn_info_extension_table {
          bool EXT_line_rasterization;
          bool EXT_load_store_op_none;
          bool EXT_memory_budget;
+         bool EXT_mesh_shader;
          bool EXT_multi_draw;
          bool EXT_multisampled_render_to_single_sampled;
          bool EXT_mutable_descriptor_type;
@@ -211,8 +212,8 @@ struct vn_info_extension {
 };
 
 /* sorted by extension names for bsearch */
-static const uint32_t _vn_info_extension_count = 184;
-static const struct vn_info_extension _vn_info_extensions[184] = {
+static const uint32_t _vn_info_extension_count = 185;
+static const struct vn_info_extension _vn_info_extensions[185] = {
    { "VK_ARM_rasterization_order_attachment_access", 343, 1 },
    { "VK_EXT_4444_formats", 341, 1 },
    { "VK_EXT_attachment_feedback_loop_dynamic_state", 525, 1 },
@@ -258,6 +259,7 @@ static const struct vn_info_extension _vn_info_extensions[184] = {
    { "VK_EXT_line_rasterization", 260, 1 },
    { "VK_EXT_load_store_op_none", 401, 1 },
    { "VK_EXT_memory_budget", 238, 1 },
+   { "VK_EXT_mesh_shader", 329, 1 },
    { "VK_EXT_multi_draw", 393, 1 },
    { "VK_EXT_multisampled_render_to_single_sampled", 377, 1 },
    { "VK_EXT_mutable_descriptor_type", 495, 1 },

@@ -234,6 +234,9 @@ static inline const char *vn_dispatch_command_name(VkCommandTypeEXT type)
     case VK_COMMAND_TYPE_vkCmdBeginQueryIndexedEXT_EXT: return "vkCmdBeginQueryIndexedEXT";
     case VK_COMMAND_TYPE_vkCmdEndQueryIndexedEXT_EXT: return "vkCmdEndQueryIndexedEXT";
     case VK_COMMAND_TYPE_vkCmdDrawIndirectByteCountEXT_EXT: return "vkCmdDrawIndirectByteCountEXT";
+    case VK_COMMAND_TYPE_vkCmdDrawMeshTasksEXT_EXT: return "vkCmdDrawMeshTasksEXT";
+    case VK_COMMAND_TYPE_vkCmdDrawMeshTasksIndirectEXT_EXT: return "vkCmdDrawMeshTasksIndirectEXT";
+    case VK_COMMAND_TYPE_vkCmdDrawMeshTasksIndirectCountEXT_EXT: return "vkCmdDrawMeshTasksIndirectCountEXT";
     case VK_COMMAND_TYPE_vkDestroyAccelerationStructureKHR_EXT: return "vkDestroyAccelerationStructureKHR";
     case VK_COMMAND_TYPE_vkCmdCopyAccelerationStructureKHR_EXT: return "vkCmdCopyAccelerationStructureKHR";
     case VK_COMMAND_TYPE_vkCopyAccelerationStructureKHR_EXT: return "vkCopyAccelerationStructureKHR";
@@ -378,7 +381,7 @@ static inline const char *vn_dispatch_command_name(VkCommandTypeEXT type)
     }
 }
 
-static void (*const vn_dispatch_table[332])(struct vn_dispatch_context *ctx, VkCommandFlagsEXT flags) = {
+static void (*const vn_dispatch_table[335])(struct vn_dispatch_context *ctx, VkCommandFlagsEXT flags) = {
     [VK_COMMAND_TYPE_vkCreateInstance_EXT] = vn_dispatch_vkCreateInstance,
     [VK_COMMAND_TYPE_vkDestroyInstance_EXT] = vn_dispatch_vkDestroyInstance,
     [VK_COMMAND_TYPE_vkEnumeratePhysicalDevices_EXT] = vn_dispatch_vkEnumeratePhysicalDevices,
@@ -570,6 +573,9 @@ static void (*const vn_dispatch_table[332])(struct vn_dispatch_context *ctx, VkC
     [VK_COMMAND_TYPE_vkCmdBeginQueryIndexedEXT_EXT] = vn_dispatch_vkCmdBeginQueryIndexedEXT,
     [VK_COMMAND_TYPE_vkCmdEndQueryIndexedEXT_EXT] = vn_dispatch_vkCmdEndQueryIndexedEXT,
     [VK_COMMAND_TYPE_vkCmdDrawIndirectByteCountEXT_EXT] = vn_dispatch_vkCmdDrawIndirectByteCountEXT,
+    [VK_COMMAND_TYPE_vkCmdDrawMeshTasksEXT_EXT] = vn_dispatch_vkCmdDrawMeshTasksEXT,
+    [VK_COMMAND_TYPE_vkCmdDrawMeshTasksIndirectEXT_EXT] = vn_dispatch_vkCmdDrawMeshTasksIndirectEXT,
+    [VK_COMMAND_TYPE_vkCmdDrawMeshTasksIndirectCountEXT_EXT] = vn_dispatch_vkCmdDrawMeshTasksIndirectCountEXT,
     [VK_COMMAND_TYPE_vkDestroyAccelerationStructureKHR_EXT] = vn_dispatch_vkDestroyAccelerationStructureKHR,
     [VK_COMMAND_TYPE_vkCmdCopyAccelerationStructureKHR_EXT] = vn_dispatch_vkCmdCopyAccelerationStructureKHR,
     [VK_COMMAND_TYPE_vkCopyAccelerationStructureKHR_EXT] = vn_dispatch_vkCopyAccelerationStructureKHR,
@@ -703,7 +709,7 @@ static inline void vn_dispatch_command(struct vn_dispatch_context *ctx)
     vn_decode_VkFlags(ctx->decoder, &cmd_flags);
 
     {
-        if (cmd_type < 332 && vn_dispatch_table[cmd_type])
+        if (cmd_type < 335 && vn_dispatch_table[cmd_type])
             vn_dispatch_table[cmd_type](ctx, cmd_flags);
         else
             vn_cs_decoder_set_fatal(ctx->decoder);

@@ -465,6 +465,9 @@ typedef enum VkCommandTypeEXT {
     VK_COMMAND_TYPE_vkCmdSetAttachmentFeedbackLoopEnableEXT_EXT = 329,
     VK_COMMAND_TYPE_vkCmdSetDepthClampRangeEXT_EXT = 330,
     VK_COMMAND_TYPE_vkGetPhysicalDeviceCooperativeMatrixPropertiesKHR_EXT = 331,
+    VK_COMMAND_TYPE_vkCmdDrawMeshTasksEXT_EXT = 332,
+    VK_COMMAND_TYPE_vkCmdDrawMeshTasksIndirectEXT_EXT = 333,
+    VK_COMMAND_TYPE_vkCmdDrawMeshTasksIndirectCountEXT_EXT = 334,
 } VkCommandTypeEXT;
 
 typedef enum VkCommandFlagBitsEXT {
@@ -2104,6 +2107,31 @@ struct vn_command_vkCmdDrawIndirectByteCountEXT {
     uint32_t vertexStride;
 };
 
+struct vn_command_vkCmdDrawMeshTasksEXT {
+    VkCommandBuffer commandBuffer;
+    uint32_t groupCountX;
+    uint32_t groupCountY;
+    uint32_t groupCountZ;
+};
+
+struct vn_command_vkCmdDrawMeshTasksIndirectEXT {
+    VkCommandBuffer commandBuffer;
+    VkBuffer buffer;
+    VkDeviceSize offset;
+    uint32_t drawCount;
+    uint32_t stride;
+};
+
+struct vn_command_vkCmdDrawMeshTasksIndirectCountEXT {
+    VkCommandBuffer commandBuffer;
+    VkBuffer buffer;
+    VkDeviceSize offset;
+    VkBuffer countBuffer;
+    VkDeviceSize countBufferOffset;
+    uint32_t maxDrawCount;
+    uint32_t stride;
+};
+
 struct vn_command_vkDestroyAccelerationStructureKHR {
     VkDevice device;
     VkAccelerationStructureKHR accelerationStructure;
@@ -3141,6 +3169,9 @@ struct vn_dispatch_context {
     void (*dispatch_vkCmdBeginQueryIndexedEXT)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdBeginQueryIndexedEXT *args);
     void (*dispatch_vkCmdEndQueryIndexedEXT)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdEndQueryIndexedEXT *args);
     void (*dispatch_vkCmdDrawIndirectByteCountEXT)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdDrawIndirectByteCountEXT *args);
+    void (*dispatch_vkCmdDrawMeshTasksEXT)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdDrawMeshTasksEXT *args);
+    void (*dispatch_vkCmdDrawMeshTasksIndirectEXT)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdDrawMeshTasksIndirectEXT *args);
+    void (*dispatch_vkCmdDrawMeshTasksIndirectCountEXT)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdDrawMeshTasksIndirectCountEXT *args);
     void (*dispatch_vkDestroyAccelerationStructureKHR)(struct vn_dispatch_context *ctx, struct vn_command_vkDestroyAccelerationStructureKHR *args);
     void (*dispatch_vkCmdCopyAccelerationStructureKHR)(struct vn_dispatch_context *ctx, struct vn_command_vkCmdCopyAccelerationStructureKHR *args);
     void (*dispatch_vkCopyAccelerationStructureKHR)(struct vn_dispatch_context *ctx, struct vn_command_vkCopyAccelerationStructureKHR *args);
