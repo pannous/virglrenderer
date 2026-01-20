@@ -181,6 +181,12 @@ vkr_dispatch_vkCreateInstance(struct vn_dispatch_context *dispatch,
    create_info->enabledLayerCount = layer_count;
    create_info->ppEnabledLayerNames = layer_names;
 
+#ifdef __APPLE__
+   /* MoltenVK requires portability enumeration to be enabled */
+   ext_names[ext_count++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+   create_info->flags |= VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR;
+#endif
+
    assert(ext_count <= ARRAY_SIZE(ext_names));
    create_info->enabledExtensionCount = ext_count;
    create_info->ppEnabledExtensionNames = ext_names;
