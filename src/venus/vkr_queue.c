@@ -324,12 +324,17 @@ vkr_dispatch_vkGetDeviceQueue2(struct vn_dispatch_context *dispatch,
 {
    struct vkr_context *ctx = dispatch->data;
 
+   fprintf(stderr, "[VKR] vkGetDeviceQueue2: family=%u idx=%u flags=%u\n",
+           args->pQueueInfo->queueFamilyIndex, args->pQueueInfo->queueIndex,
+           args->pQueueInfo->flags);
+
    struct vkr_device *dev = vkr_device_from_handle(args->device);
 
    struct vkr_queue *queue = vkr_device_lookup_queue(dev, args->pQueueInfo->flags,
                                                      args->pQueueInfo->queueFamilyIndex,
                                                      args->pQueueInfo->queueIndex);
    if (!queue) {
+      fprintf(stderr, "[VKR] ERROR: vkGetDeviceQueue2 - queue not found!\n");
       vkr_context_set_fatal(ctx);
       return;
    }
@@ -338,6 +343,7 @@ vkr_dispatch_vkGetDeviceQueue2(struct vn_dispatch_context *dispatch,
     * overriding vkr_queue object id assignment.
     */
    if (queue->base.id) {
+      fprintf(stderr, "[VKR] ERROR: vkGetDeviceQueue2 - queue already initialized!\n");
       vkr_log("invalid to reinitialize vkr_queue");
       vkr_context_set_fatal(ctx);
       return;
@@ -346,6 +352,7 @@ vkr_dispatch_vkGetDeviceQueue2(struct vn_dispatch_context *dispatch,
    const VkDeviceQueueTimelineInfoMESA *timeline_info = vkr_find_struct(
       args->pQueueInfo->pNext, VK_STRUCTURE_TYPE_DEVICE_QUEUE_TIMELINE_INFO_MESA);
    if (!vkr_queue_assign_ring_idx(ctx, queue, timeline_info)) {
+      fprintf(stderr, "[VKR] ERROR: vkGetDeviceQueue2 - no VkDeviceQueueTimelineInfoMESA!\n");
       vkr_context_set_fatal(ctx);
       return;
    }
@@ -353,6 +360,9 @@ vkr_dispatch_vkGetDeviceQueue2(struct vn_dispatch_context *dispatch,
    const vkr_object_id id =
       vkr_cs_handle_load_id((const void **)args->pQueue, VK_OBJECT_TYPE_QUEUE);
    vkr_queue_assign_object_id(ctx, queue, id);
+
+   fprintf(stderr, "[VKR] vkGetDeviceQueue2: SUCCESS ring_idx=%u host_queue=%p\n",
+           queue->ring_idx, (void*)(uintptr_t)queue->base.handle.queue);
 }
 
 static void
@@ -361,6 +371,9 @@ vkr_dispatch_vkGetDeviceQueue(struct vn_dispatch_context *dispatch,
 {
    /* Must use vkGetDeviceQueue2 for proper device queue initialization. */
    struct vkr_context *ctx = dispatch->data;
+   fprintf(stderr, "[VKR] ERROR: vkGetDeviceQueue called (family=%u idx=%u) - SETTING FATAL!\n",
+           args->queueFamilyIndex, args->queueIndex);
+   fprintf(stderr, "[VKR] Guest driver must use vkGetDeviceQueue2 with VkDeviceQueueTimelineInfoMESA\n");
    vkr_context_set_fatal(ctx);
    return;
 }
@@ -373,12 +386,19 @@ vkr_dispatch_vkQueueSubmit(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_queue *queue = vkr_queue_from_handle(args->queue);
    struct vn_device_proc_table *vk = &queue->device->proc_table;
 
+   VkFence guest_fence = args->fence;  /* before handle replacement */
    vn_replace_vkQueueSubmit_args_handle(args);
+   VkFence host_fence = args->fence;   /* after handle replacement */
+
+   fprintf(stderr, "[VKR] vkQueueSubmit: submitCount=%u guest_fence=%p host_fence=%p\n",
+           args->submitCount, (void*)(uintptr_t)guest_fence, (void*)(uintptr_t)host_fence);
 
    mtx_lock(&queue->vk_mutex);
    args->ret =
       vk->QueueSubmit(args->queue, args->submitCount, args->pSubmits, args->fence);
    mtx_unlock(&queue->vk_mutex);
+
+   fprintf(stderr, "[VKR] vkQueueSubmit: ret=%d\n", args->ret);
 }
 
 static void
@@ -426,7 +446,15 @@ static void
 vkr_dispatch_vkCreateFence(struct vn_dispatch_context *dispatch,
                            struct vn_command_vkCreateFence *args)
 {
-   vkr_fence_create_and_add(dispatch->data, args);
+   struct vkr_fence *fence = vkr_fence_create_and_add(dispatch->data, args);
+   if (fence) {
+      fprintf(stderr, "[VKR] vkCreateFence: guest_id=%llu host_fence=%p ret=%d\n",
+              (unsigned long long)fence->base.id,
+              (void*)(uintptr_t)fence->base.handle.fence,
+              args->ret);
+   } else {
+      fprintf(stderr, "[VKR] vkCreateFence: FAILED ret=%d\n", args->ret);
+   }
 }
 
 static void
@@ -465,9 +493,18 @@ vkr_dispatch_vkWaitForFences(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
 
+   fprintf(stderr, "[VKR] vkWaitForFences: fenceCount=%u timeout=%llu\n",
+           args->fenceCount, (unsigned long long)args->timeout);
+
    vn_replace_vkWaitForFences_args_handle(args);
+
+   fprintf(stderr, "[VKR] vkWaitForFences: host_fence=%p calling MoltenVK...\n",
+           args->fenceCount > 0 ? (void*)(uintptr_t)args->pFences[0] : NULL);
+
    args->ret = vk->WaitForFences(args->device, args->fenceCount, args->pFences,
                                  args->waitAll, args->timeout);
+
+   fprintf(stderr, "[VKR] vkWaitForFences: ret=%d\n", args->ret);
 }
 
 static void
