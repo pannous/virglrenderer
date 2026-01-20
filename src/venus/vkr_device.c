@@ -130,7 +130,13 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
    /* append extensions for our own use */
    const char **exts = NULL;
    uint32_t ext_count = args->pCreateInfo->enabledExtensionCount;
-   ext_count += physical_dev->KHR_external_memory_fd;
+   /* When using host pointer import fallback, don't request VK_KHR_external_memory_fd
+    * from the host driver - use VK_EXT_external_memory_host instead */
+   if (physical_dev->use_host_pointer_import) {
+      ext_count += physical_dev->EXT_external_memory_host;
+   } else {
+      ext_count += physical_dev->KHR_external_memory_fd;
+   }
    ext_count += physical_dev->EXT_external_memory_dma_buf;
    ext_count += physical_dev->KHR_external_fence_fd;
    if (ext_count > args->pCreateInfo->enabledExtensionCount) {
@@ -143,8 +149,14 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
          exts[i] = args->pCreateInfo->ppEnabledExtensionNames[i];
 
       ext_count = args->pCreateInfo->enabledExtensionCount;
-      if (physical_dev->KHR_external_memory_fd)
-         exts[ext_count++] = "VK_KHR_external_memory_fd";
+      /* Use host pointer import extension on macOS/MoltenVK fallback path */
+      if (physical_dev->use_host_pointer_import) {
+         if (physical_dev->EXT_external_memory_host)
+            exts[ext_count++] = "VK_EXT_external_memory_host";
+      } else {
+         if (physical_dev->KHR_external_memory_fd)
+            exts[ext_count++] = "VK_KHR_external_memory_fd";
+      }
       if (physical_dev->EXT_external_memory_dma_buf)
          exts[ext_count++] = "VK_EXT_external_memory_dma_buf";
       if (physical_dev->KHR_external_fence_fd)

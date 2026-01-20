@@ -5,11 +5,15 @@
 
 #include "vkr_physical_device.h"
 
+#include <stdio.h>
+
 #include "venus-protocol/vn_protocol_renderer_device.h"
 
 #include "vkr_context.h"
 #include "vkr_device.h"
 #include "vkr_instance.h"
+
+#define VKR_STDERR_DEBUG(...) fprintf(stderr, "VKR_DEBUG: " __VA_ARGS__)
 
 #ifdef HAVE_LINUX_UDMABUF_H
 #include <fcntl.h>
@@ -106,8 +110,10 @@ vkr_instance_enumerate_physical_devices(struct vkr_instance *instance)
 
    struct vn_instance_proc_table *vk = &instance->proc_table;
    uint32_t count;
+   VKR_STDERR_DEBUG("vkr_instance_enumerate_physical_devices: calling EnumeratePhysicalDevices\n");
    VkResult result =
       vk->EnumeratePhysicalDevices(instance->base.handle.instance, &count, NULL);
+   VKR_STDERR_DEBUG("vkr_instance_enumerate_physical_devices: result=%d count=%u\n", result, count);
    if (result != VK_SUCCESS)
       return result;
 
@@ -273,6 +279,8 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
          physical_dev->KHR_external_memory_fd = true;
       else if (!strcmp(props->extensionName, "VK_EXT_external_memory_dma_buf"))
          physical_dev->EXT_external_memory_dma_buf = true;
+      else if (!strcmp(props->extensionName, "VK_EXT_external_memory_host"))
+         physical_dev->EXT_external_memory_host = true;
       else if (!strcmp(props->extensionName, "VK_KHR_external_fence_fd"))
          physical_dev->KHR_external_fence_fd = true;
 
@@ -281,7 +289,48 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
          if (props->specVersion > spec_ver)
             props->specVersion = spec_ver;
          exts[advertised_count++] = exts[i];
+      } else {
+         /* Pass through portability extensions for MoltenVK on macOS */
+         if (!strcmp(props->extensionName, "VK_KHR_portability_subset") ||
+             !strcmp(props->extensionName, "VK_KHR_portability_enumeration")) {
+            VKR_STDERR_DEBUG("vkr_physical_device_init_extensions: passing through %s\n",
+                             props->extensionName);
+            exts[advertised_count++] = exts[i];
+         }
       }
+   }
+
+   /* On macOS with MoltenVK, VK_KHR_external_memory_fd is not available.
+    * Use VK_EXT_external_memory_host as a fallback for memory import.
+    * This allows Venus to work by importing blob memory as host pointers.
+    */
+   if (!physical_dev->KHR_external_memory_fd && physical_dev->EXT_external_memory_host) {
+      VkPhysicalDeviceExternalMemoryHostPropertiesEXT host_props = {
+         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT,
+      };
+      VkPhysicalDeviceProperties2 props2 = {
+         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+         .pNext = &host_props,
+      };
+      vk->GetPhysicalDeviceProperties2(handle, &props2);
+
+      physical_dev->min_imported_host_pointer_alignment = host_props.minImportedHostPointerAlignment;
+      physical_dev->use_host_pointer_import = true;
+      /* Pretend fd support for guest compatibility - Venus protocol doesn't use fd APIs directly */
+      physical_dev->KHR_external_memory_fd = true;
+
+      /* Add VK_KHR_external_memory_fd to advertised extensions for guest */
+      VkExtensionProperties *new_exts = realloc(exts, sizeof(*exts) * (advertised_count + 1));
+      if (new_exts) {
+         exts = new_exts;
+         strncpy(exts[advertised_count].extensionName, "VK_KHR_external_memory_fd",
+                 VK_MAX_EXTENSION_NAME_SIZE);
+         exts[advertised_count].specVersion = 1;
+         advertised_count++;
+      }
+      VKR_STDERR_DEBUG("vkr_physical_device_init_extensions: using host pointer import "
+                       "(alignment=0x%llx) as VK_KHR_external_memory_fd fallback\n",
+                       (unsigned long long)physical_dev->min_imported_host_pointer_alignment);
    }
 
    if (physical_dev->KHR_external_fence_fd) {
@@ -347,15 +396,19 @@ static void
 vkr_dispatch_vkEnumeratePhysicalDevices(struct vn_dispatch_context *dispatch,
                                         struct vn_command_vkEnumeratePhysicalDevices *args)
 {
+   VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: called\n");
    struct vkr_context *ctx = dispatch->data;
 
    struct vkr_instance *instance = vkr_instance_from_handle(args->instance);
    if (instance != ctx->instance) {
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: instance mismatch, fatal\n");
       vkr_context_set_fatal(ctx);
       return;
    }
 
    args->ret = vkr_instance_enumerate_physical_devices(instance);
+   VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: enumeration returned %d, count=%u\n",
+                    args->ret, instance->physical_device_count);
    if (args->ret != VK_SUCCESS)
       return;
 
@@ -363,6 +416,7 @@ vkr_dispatch_vkEnumeratePhysicalDevices(struct vn_dispatch_context *dispatch,
    if (!args->pPhysicalDevices) {
       *args->pPhysicalDeviceCount = count;
       args->ret = VK_SUCCESS;
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: returning count=%u\n", count);
       return;
    }
 
@@ -379,17 +433,23 @@ vkr_dispatch_vkEnumeratePhysicalDevices(struct vn_dispatch_context *dispatch,
       struct vkr_physical_device *physical_dev = instance->physical_devices[i];
       const vkr_object_id id = vkr_cs_handle_load_id(
          (const void **)&args->pPhysicalDevices[i], VK_OBJECT_TYPE_PHYSICAL_DEVICE);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: loop i=%u id=%llu physical_dev=%p\n",
+                       i, (unsigned long long)id, (void*)physical_dev);
 
       if (physical_dev) {
          if (physical_dev->base.id != id) {
+            VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: id mismatch expected %llu got %llu, fatal\n",
+                             (unsigned long long)physical_dev->base.id, (unsigned long long)id);
             vkr_context_set_fatal(ctx);
             break;
          }
          continue;
       }
 
-      if (!vkr_context_validate_object_id(ctx, id))
+      if (!vkr_context_validate_object_id(ctx, id)) {
+         VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: invalid object_id %llu\n", (unsigned long long)id);
          break;
+      }
 
       physical_dev =
          vkr_object_alloc(sizeof(*physical_dev), VK_OBJECT_TYPE_PHYSICAL_DEVICE, id);
@@ -399,21 +459,35 @@ vkr_dispatch_vkEnumeratePhysicalDevices(struct vn_dispatch_context *dispatch,
       }
 
       physical_dev->base.handle.physical_device = instance->physical_device_handles[i];
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: created pdev obj id=%llu handle=%p\n",
+                       (unsigned long long)id, (void*)instance->physical_device_handles[i]);
 
       vkr_physical_device_init_proc_table(physical_dev, instance);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: init_proc_table done\n");
       vkr_physical_device_init_properties(physical_dev);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: init_properties done apiVer=%u.%u.%u\n",
+                       VK_API_VERSION_MAJOR(physical_dev->properties.apiVersion),
+                       VK_API_VERSION_MINOR(physical_dev->properties.apiVersion),
+                       VK_API_VERSION_PATCH(physical_dev->properties.apiVersion));
       physical_dev->api_version =
          MIN2(physical_dev->properties.apiVersion, instance->api_version);
       vkr_physical_device_init_extensions(physical_dev);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: init_extensions done count=%u\n",
+                       physical_dev->extension_count);
       vkr_physical_device_init_memory_properties(physical_dev);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: init_memory_properties done\n");
       vkr_physical_device_init_id_properties(physical_dev);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: init_id_properties done\n");
       vkr_physical_device_init_queue_family_properties(physical_dev);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: init_queue_family_properties done count=%u\n",
+                       physical_dev->queue_family_property_count);
 
       list_inithead(&physical_dev->devices);
 
       instance->physical_devices[i] = physical_dev;
 
       vkr_context_add_object(ctx, &physical_dev->base);
+      VKR_STDERR_DEBUG("vkr_dispatch_vkEnumeratePhysicalDevices: physical device %u fully initialized\n", i);
    }
    /* remove all physical devices on errors */
    if (i < count) {

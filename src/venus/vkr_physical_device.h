@@ -23,6 +23,9 @@ struct vkr_physical_device {
 
    bool KHR_external_memory_fd;
    bool EXT_external_memory_dma_buf;
+   bool EXT_external_memory_host;
+   bool use_host_pointer_import;  /* Use VK_EXT_external_memory_host instead of fd */
+   VkDeviceSize min_imported_host_pointer_alignment;
 
    bool KHR_external_fence_fd;
    bool KHR_external_semaphore_fd;
