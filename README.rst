@@ -2,6 +2,11 @@
 ==================================================================================
 
 
+                                                                                   
+# Fork
+## Venus on macOS with MoltenVK
+Venus on macOS with MoltenVK is now working! The guest VM can enumerate and use the Apple Metal GPU through the Vulkan 1.2 passthrough
+
 Source
 ------
 
