@@ -24,11 +24,33 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#ifndef __APPLE__
 #include <sys/signalfd.h>
+#endif
 #include <sys/types.h>
 #include <sys/wait.h>
+#ifdef ENABLE_RENDER_SERVER_WORKER_THREAD
 #include <threads.h>
+#endif
 #include <unistd.h>
+
+#ifdef __APPLE__
+/*
+ * macOS doesn't have signalfd. Use a pipe-based signal notification instead.
+ * The signal handler writes to a pipe, and we read from it to detect SIGCHLD.
+ */
+static int sigchld_pipe[2] = { -1, -1 };
+
+static void
+sigchld_handler(int sig)
+{
+   (void)sig;
+   /* Write a byte to the pipe to wake up the reader */
+   char c = 1;
+   ssize_t ret = write(sigchld_pipe[1], &c, 1);
+   (void)ret; /* Ignore errors in signal handler */
+}
+#endif
 
 struct minijail;
 
@@ -164,6 +186,41 @@ fork_minijail(const struct minijail *template)
 static int
 create_sigchld_fd(void)
 {
+#ifdef __APPLE__
+   /*
+    * macOS doesn't have signalfd. Use a pipe and signal handler instead.
+    */
+   if (pipe(sigchld_pipe) < 0) {
+      render_log("failed to create sigchld pipe");
+      return -1;
+   }
+
+   /* Set non-blocking and close-on-exec */
+   int flags = fcntl(sigchld_pipe[0], F_GETFL);
+   if (flags >= 0)
+      fcntl(sigchld_pipe[0], F_SETFL, flags | O_NONBLOCK);
+   flags = fcntl(sigchld_pipe[0], F_GETFD);
+   if (flags >= 0)
+      fcntl(sigchld_pipe[0], F_SETFD, flags | FD_CLOEXEC);
+   flags = fcntl(sigchld_pipe[1], F_GETFD);
+   if (flags >= 0)
+      fcntl(sigchld_pipe[1], F_SETFD, flags | FD_CLOEXEC);
+
+   /* Set up signal handler */
+   struct sigaction sa = { 0 };
+   sa.sa_handler = sigchld_handler;
+   sa.sa_flags = SA_RESTART;
+   sigemptyset(&sa.sa_mask);
+   if (sigaction(SIGCHLD, &sa, NULL) < 0) {
+      render_log("failed to set sigaction for SIGCHLD");
+      close(sigchld_pipe[0]);
+      close(sigchld_pipe[1]);
+      sigchld_pipe[0] = sigchld_pipe[1] = -1;
+      return -1;
+   }
+
+   return sigchld_pipe[0];
+#else
    /* restore the ability of waitid() to catch SIGCHLD, in case parent disabled
     * it (e.g. virgl_test_server) */
    struct sigaction sa = { 0 };
@@ -195,6 +252,7 @@ create_sigchld_fd(void)
    }
 
    return fd;
+#endif
 }
 
 #endif /* !ENABLE_RENDER_SERVER_WORKER_THREAD */
@@ -321,6 +379,20 @@ render_worker_jail_drain_sigchld_fd(struct render_worker_jail *jail)
    if (jail->sigchld_fd < 0)
       return true;
 
+#ifdef __APPLE__
+   /* On macOS, drain the pipe instead of signalfd */
+   do {
+      char buf[64];
+      const ssize_t r = read(jail->sigchld_fd, buf, sizeof(buf));
+      if (r == sizeof(buf))
+         continue;
+      if (r > 0 || (r < 0 && errno == EAGAIN))
+         break;
+
+      render_log("failed to read sigchld pipe");
+      return false;
+   } while (true);
+#else
    do {
       struct signalfd_siginfo siginfos[8];
       const ssize_t r = read(jail->sigchld_fd, siginfos, sizeof(siginfos));
@@ -332,6 +404,7 @@ render_worker_jail_drain_sigchld_fd(struct render_worker_jail *jail)
       render_log("failed to read signalfd");
       return false;
    } while (true);
+#endif
 
    return true;
 }

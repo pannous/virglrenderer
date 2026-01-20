@@ -6,11 +6,89 @@
 #include "render_socket.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+/* macOS compatibility - these flags don't exist on macOS */
+#ifdef __APPLE__
+#ifndef SOCK_CLOEXEC
+#define SOCK_CLOEXEC 0
+#endif
+#ifndef MSG_CMSG_CLOEXEC
+#define MSG_CMSG_CLOEXEC 0
+#endif
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+#endif
+
 #define RENDER_SOCKET_MAX_FD_COUNT 8
+
+#ifdef __APPLE__
+/*
+ * macOS doesn't support SOCK_SEQPACKET for Unix domain sockets.
+ * Use SOCK_STREAM with message framing instead.
+ */
+struct stream_msg_header {
+   uint32_t size;      /* payload size */
+   uint32_t fd_count;  /* number of fds attached */
+};
+
+/* Read exactly n bytes from a stream socket */
+static bool
+render_socket_read_all(int fd, void *buf, size_t size)
+{
+   char *p = buf;
+   size_t remaining = size;
+   while (remaining > 0) {
+      ssize_t n = read(fd, p, remaining);
+      if (n < 0) {
+         if (errno == EINTR || errno == EAGAIN)
+            continue;
+         render_log("failed to read from socket: %s", strerror(errno));
+         return false;
+      }
+      if (n == 0) {
+         /* EOF */
+         return false;
+      }
+      p += n;
+      remaining -= n;
+   }
+   return true;
+}
+
+/* Write exactly n bytes to a stream socket */
+static bool
+render_socket_write_all(int fd, const void *buf, size_t size)
+{
+   const char *p = buf;
+   size_t remaining = size;
+   while (remaining > 0) {
+      ssize_t n = write(fd, p, remaining);
+      if (n < 0) {
+         if (errno == EINTR || errno == EAGAIN)
+            continue;
+         render_log("failed to write to socket: %s", strerror(errno));
+         return false;
+      }
+      p += n;
+      remaining -= n;
+   }
+   return true;
+}
+
+/* Set close-on-exec flag on fd */
+static void
+set_cloexec(int fd)
+{
+   int flags = fcntl(fd, F_GETFD);
+   if (flags >= 0)
+      fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}
+#endif /* __APPLE__ */
 
 /* The socket pair between the server process and the client process is set up
  * by the client process (or yet another process).  Because render_server_run
@@ -28,11 +106,22 @@
 bool
 render_socket_pair(int out_fds[static 2])
 {
+#ifdef __APPLE__
+   /* macOS doesn't support SOCK_SEQPACKET, use SOCK_STREAM */
+   int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, out_fds);
+   if (ret) {
+      render_log("failed to create socket pair");
+      return false;
+   }
+   set_cloexec(out_fds[0]);
+   set_cloexec(out_fds[1]);
+#else
    int ret = socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, out_fds);
    if (ret) {
       render_log("failed to create socket pair");
       return false;
    }
+#endif
 
    return true;
 }
@@ -44,7 +133,12 @@ render_socket_is_seqpacket(int fd)
    socklen_t len = sizeof(type);
    if (getsockopt(fd, SOL_SOCKET, SO_TYPE, &type, &len))
       return false;
+#ifdef __APPLE__
+   /* On macOS we use SOCK_STREAM with message framing */
+   return type == SOCK_STREAM || type == SOCK_SEQPACKET;
+#else
    return type == SOCK_SEQPACKET;
+#endif
 }
 
 void
@@ -102,6 +196,16 @@ render_socket_recvmsg(struct render_socket *socket, struct msghdr *msg, size_t *
 
          return false;
       }
+
+#ifdef __APPLE__
+      /* macOS doesn't support MSG_CMSG_CLOEXEC, set CLOEXEC manually */
+      {
+         int fd_count;
+         const int *fds = get_received_fds(msg, &fd_count);
+         for (int i = 0; i < fd_count; i++)
+            set_cloexec(fds[i]);
+      }
+#endif
 
       *out_size = s;
       return true;

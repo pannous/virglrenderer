@@ -204,7 +204,12 @@ vkr_ring_relax(uint32_t *iter)
       .tv_sec = us / 1000000,
       .tv_nsec = (us % 1000000) * 1000,
    };
+#ifdef __APPLE__
+   /* macOS doesn't have clock_nanosleep, use nanosleep instead */
+   nanosleep(&ts, NULL);
+#else
    clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, NULL);
+#endif
 }
 
 static bool

@@ -5,11 +5,31 @@
 
 #include "proxy_socket.h"
 
+#include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <unistd.h>
+
+/* macOS compatibility - these flags don't exist on macOS */
+#ifdef __APPLE__
+#ifndef MSG_CMSG_CLOEXEC
+#define MSG_CMSG_CLOEXEC 0
+#endif
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
+/* Set close-on-exec flag on fd */
+static void
+set_cloexec(int fd)
+{
+   int flags = fcntl(fd, F_GETFD);
+   if (flags >= 0)
+      fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
+}
+#endif /* __APPLE__ */
 
 #define PROXY_SOCKET_MAX_FD_COUNT 8
 
@@ -17,11 +37,22 @@
 bool
 proxy_socket_pair(int out_fds[static 2])
 {
+#ifdef __APPLE__
+   /* macOS doesn't support SOCK_SEQPACKET, use SOCK_STREAM */
+   int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, out_fds);
+   if (ret) {
+      proxy_log("failed to create socket pair");
+      return false;
+   }
+   set_cloexec(out_fds[0]);
+   set_cloexec(out_fds[1]);
+#else
    int ret = socketpair(AF_UNIX, SOCK_SEQPACKET, 0, out_fds);
    if (ret) {
       proxy_log("failed to create socket pair");
       return false;
    }
+#endif
 
    return true;
 }
@@ -35,7 +66,12 @@ proxy_socket_is_seqpacket(int fd)
       proxy_log("fd %d err %s", fd, strerror(errno));
       return false;
    }
+#ifdef __APPLE__
+   /* On macOS we use SOCK_STREAM with message framing */
+   return type == SOCK_STREAM || type == SOCK_SEQPACKET;
+#else
    return type == SOCK_SEQPACKET;
+#endif
 }
 
 void
@@ -121,6 +157,16 @@ proxy_socket_recvmsg(struct proxy_socket *socket, struct msghdr *msg)
 
          return false;
       }
+
+#ifdef __APPLE__
+      /* macOS doesn't support MSG_CMSG_CLOEXEC, set CLOEXEC manually */
+      {
+         int fd_count;
+         const int *fds = get_received_fds(msg, &fd_count);
+         for (int i = 0; i < fd_count; i++)
+            set_cloexec(fds[i]);
+      }
+#endif
 
       return true;
    } while (true);
