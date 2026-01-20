@@ -91,14 +91,19 @@ bool
 proxy_socket_pair(int out_fds[static 2])
 {
 #ifdef __APPLE__
-   /* macOS doesn't support SOCK_SEQPACKET, use SOCK_STREAM */
+   /* macOS doesn't support SOCK_SEQPACKET, use SOCK_STREAM
+    * Note: Don't set CLOEXEC here because these fds are used across fork+exec
+    * to the render_server child process. The child needs to inherit fd[1].
+    */
    int ret = socketpair(AF_UNIX, SOCK_STREAM, 0, out_fds);
    if (ret) {
       proxy_log("failed to create socket pair");
       return false;
    }
+   /* Only set cloexec on the fd that stays in the parent process (fd[0]).
+    * fd[1] is passed to the child process via exec, so it must NOT have cloexec.
+    */
    set_cloexec(out_fds[0]);
-   set_cloexec(out_fds[1]);
 #else
    int ret = socketpair(AF_UNIX, SOCK_SEQPACKET, 0, out_fds);
    if (ret) {
