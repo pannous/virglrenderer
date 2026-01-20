@@ -5,7 +5,11 @@
 
 #include "vkr_device_memory.h"
 
+#include <sys/mman.h>
+
+#include "util/anon_file.h"
 #include "venus-protocol/vn_protocol_renderer_transport.h"
+#include "virgl_util.h"
 
 #include "vkr_device_memory_gen.h"
 #include "vkr_physical_device.h"
@@ -358,6 +362,52 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
       }
    }
 
+   /* Host pointer import fallback for macOS/MoltenVK with VK_EXT_external_memory_host.
+    * When fd export isn't available but host pointer import is, create SHM-backed
+    * memory by importing a mmap'd region. This enables memory sharing with QEMU
+    * without requiring VK_KHR_external_memory_fd.
+    */
+   int shm_fd = -1;
+   void *shm_ptr = NULL;
+   uint64_t shm_size = 0;
+   VkImportMemoryHostPointerInfoEXT local_host_pointer_info;
+
+   if ((property_flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) &&
+       !res_info && valid_fd_types == 0 && physical_dev->use_host_pointer_import) {
+
+      /* Align size to host pointer import alignment (16KB on macOS) */
+      const VkDeviceSize alignment = physical_dev->min_imported_host_pointer_alignment;
+      shm_size = (alloc_info->allocationSize + alignment - 1) & ~(alignment - 1);
+
+      shm_fd = os_create_anonymous_file(shm_size, "vkr-hostptr");
+      if (shm_fd < 0) {
+         vkr_log("failed to create SHM for host pointer import");
+         args->ret = VK_ERROR_OUT_OF_HOST_MEMORY;
+         return;
+      }
+
+      shm_ptr = mmap(NULL, shm_size, PROT_READ | PROT_WRITE, MAP_SHARED, shm_fd, 0);
+      if (shm_ptr == MAP_FAILED) {
+         vkr_log("failed to mmap SHM for host pointer import");
+         close(shm_fd);
+         args->ret = VK_ERROR_OUT_OF_HOST_MEMORY;
+         return;
+      }
+
+      local_host_pointer_info = (VkImportMemoryHostPointerInfoEXT){
+         .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
+         .pNext = alloc_info->pNext,
+         .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+         .pHostPointer = shm_ptr,
+      };
+      alloc_info->pNext = &local_host_pointer_info;
+
+      /* Also need to pad the allocation size for the host pointer import */
+      alloc_info->allocationSize = shm_size;
+
+      valid_fd_types = 1 << VIRGL_RESOURCE_FD_SHM;
+   }
+
    if (export_info) {
       if (export_info->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT)
          valid_fd_types |= 1 << VIRGL_RESOURCE_FD_OPAQUE;
@@ -371,6 +421,10 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
          close(local_import_info.fd);
       if (gbm_bo)
          vkr_gbm_bo_destroy(gbm_bo);
+      if (shm_ptr)
+         munmap(shm_ptr, shm_size);
+      if (shm_fd >= 0)
+         close(shm_fd);
       return;
    }
 
@@ -380,6 +434,9 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
    mem->valid_fd_types = valid_fd_types;
    mem->udmabuf_fd = udmabuf_fd;
    mem->gbm_bo = gbm_bo;
+   mem->shm_fd = shm_fd;
+   mem->shm_ptr = shm_ptr;
+   mem->shm_size = shm_size;
    mem->allocation_size = alloc_info->allocationSize;
    mem->memory_type_index = mem_type_index;
 }
@@ -438,25 +495,49 @@ vkr_dispatch_vkGetMemoryResourcePropertiesMESA(
       return;
    }
 
-   if (res->fd_type != VIRGL_RESOURCE_FD_DMABUF) {
+   vn_replace_vkGetMemoryResourcePropertiesMESA_args_handle(args);
+
+   if (res->fd_type == VIRGL_RESOURCE_FD_DMABUF) {
+      /* Linux: Use dmabuf fd properties */
+      static const VkExternalMemoryHandleTypeFlagBits handle_type =
+         VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
+      VkMemoryFdPropertiesKHR mem_fd_props = {
+         .sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
+         .pNext = NULL,
+         .memoryTypeBits = 0,
+      };
+      args->ret =
+         vk->GetMemoryFdPropertiesKHR(args->device, handle_type, res->u.fd, &mem_fd_props);
+      if (args->ret != VK_SUCCESS)
+         return;
+      args->pMemoryResourceProperties->memoryTypeBits = mem_fd_props.memoryTypeBits;
+   } else if (res->fd_type == VIRGL_RESOURCE_FD_SHM) {
+      /*
+       * macOS/SHM: The memory is already mapped via mmap() and accessed
+       * directly. Return all HOST_VISIBLE memory types since we're using
+       * host-side memory mapping, not external memory import.
+       */
+      struct vkr_physical_device *pdev = dev->physical_device;
+      uint32_t memory_type_bits = 0;
+
+      for (uint32_t i = 0; i < pdev->memory_properties.memoryTypeCount; i++) {
+         VkMemoryPropertyFlags flags = pdev->memory_properties.memoryTypes[i].propertyFlags;
+         if (flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT) {
+            memory_type_bits |= (1 << i);
+         }
+      }
+
+      /* If no HOST_VISIBLE found, allow all types as fallback */
+      if (memory_type_bits == 0) {
+         memory_type_bits = (1 << pdev->memory_properties.memoryTypeCount) - 1;
+      }
+
+      args->pMemoryResourceProperties->memoryTypeBits = memory_type_bits;
+      args->ret = VK_SUCCESS;
+   } else {
       args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
       return;
    }
-
-   static const VkExternalMemoryHandleTypeFlagBits handle_type =
-      VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
-   VkMemoryFdPropertiesKHR mem_fd_props = {
-      .sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR,
-      .pNext = NULL,
-      .memoryTypeBits = 0,
-   };
-   vn_replace_vkGetMemoryResourcePropertiesMESA_args_handle(args);
-   args->ret =
-      vk->GetMemoryFdPropertiesKHR(args->device, handle_type, res->u.fd, &mem_fd_props);
-   if (args->ret != VK_SUCCESS)
-      return;
-
-   args->pMemoryResourceProperties->memoryTypeBits = mem_fd_props.memoryTypeBits;
 
    VkMemoryResourceAllocationSizePropertiesMESA *alloc_size_props =
       vkr_find_struct(args->pMemoryResourceProperties->pNext,
@@ -492,6 +573,10 @@ vkr_device_memory_release(struct vkr_device_memory *mem)
       vkr_gbm_bo_destroy(mem->gbm_bo);
    if (mem->udmabuf_fd >= 0)
       close(mem->udmabuf_fd);
+   if (mem->shm_ptr)
+      munmap(mem->shm_ptr, mem->shm_size);
+   if (mem->shm_fd >= 0)
+      close(mem->shm_fd);
 }
 
 bool
@@ -527,9 +612,10 @@ vkr_device_memory_export_blob(struct vkr_device_memory *mem,
 
    const bool can_export_dma_buf = mem->valid_fd_types & (1 << VIRGL_RESOURCE_FD_DMABUF);
    const bool can_export_opaque = mem->valid_fd_types & (1 << VIRGL_RESOURCE_FD_OPAQUE);
+   const bool can_export_shm = mem->valid_fd_types & (1 << VIRGL_RESOURCE_FD_SHM);
    enum virgl_resource_fd_type fd_type;
-   VkExternalMemoryHandleTypeFlagBits handle_type;
-   struct virgl_resource_vulkan_info vulkan_info;
+   VkExternalMemoryHandleTypeFlagBits handle_type = 0;
+   struct virgl_resource_vulkan_info vulkan_info = { 0 };
    if (blob_flags & VIRGL_RENDERER_BLOB_FLAG_USE_CROSS_DEVICE) {
       if (!can_export_dma_buf) {
          vkr_log("mem cannot export to dma_buf for cross device blob sharing");
@@ -556,8 +642,14 @@ vkr_device_memory_export_blob(struct vkr_device_memory *mem,
 
       vulkan_info.allocation_size = mem->allocation_size;
       vulkan_info.memory_type_index = mem->memory_type_index;
+   } else if (can_export_shm && mem->shm_fd >= 0) {
+      /* SHM export path for VK_EXT_external_memory_host (macOS/MoltenVK).
+       * The Vulkan memory is backed by a SHM mmap that can be shared with QEMU.
+       */
+      fd_type = VIRGL_RESOURCE_FD_SHM;
    } else {
-      vkr_log("mem is not exportable");
+      vkr_log("mem is not exportable (valid_fd_types=0x%x shm_fd=%d)",
+              mem->valid_fd_types, mem->shm_fd);
       return false;
    }
 
@@ -575,6 +667,13 @@ vkr_device_memory_export_blob(struct vkr_device_memory *mem,
       fd = vkr_gbm_bo_get_fd(mem->gbm_bo);
       if (fd < 0) {
          vkr_log("mem gbm bo export failed (ret %d)", fd);
+         return false;
+      }
+   } else if (mem->shm_fd >= 0 && fd_type == VIRGL_RESOURCE_FD_SHM) {
+      /* SHM export for VK_EXT_external_memory_host path */
+      fd = os_dupfd_cloexec(mem->shm_fd);
+      if (fd < 0) {
+         vkr_log("mem shm fd dup failed (%s)", strerror(errno));
          return false;
       }
    } else {

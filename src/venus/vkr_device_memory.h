@@ -26,6 +26,11 @@ struct vkr_device_memory {
    /* udmabuf backing non-external mappable memory */
    int udmabuf_fd;
 
+   /* SHM backing for VK_EXT_external_memory_host on macOS/MoltenVK */
+   int shm_fd;
+   void *shm_ptr;
+   uint64_t shm_size;
+
    uint64_t allocation_size;
    uint32_t memory_type_index;
 
