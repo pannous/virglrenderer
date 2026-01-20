@@ -1,11 +1,20 @@
 `Virglrenderer <https://virgil3d.github.io/>`_ - The VirGL virtual OpenGL renderer
 ==================================================================================
 
-
                                                                                    
-# Fork
+Fork
+------
+
 ## Venus on macOS with MoltenVK
+
 Venus on macOS with MoltenVK is now working! The guest VM can enumerate and use the Apple Metal GPU through the Vulkan 1.2 passthrough
+
+
+About virglrenderer
+------------------------
+virglrenderer is a host-side rendering library for QEMU’s virtio-gpu, originally designed to let a guest OpenGL driver render via the host OpenGL driver.
+
+It is not a GPU driver and not a protocol translator in the abstract sense; it is a command replayer + resource manager.
 
 Source
 ------
