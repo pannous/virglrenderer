@@ -311,7 +311,10 @@ validate_resource_fd_shm(int fd, uint64_t expected_size)
 #endif
 
    const uint64_t size = lseek(fd, 0, SEEK_END);
-   if (size != expected_size) {
+   /* Allow size >= expected_size to support alignment padding (e.g., 16KB on macOS
+    * for VK_EXT_external_memory_host). The guest only maps expected_size bytes.
+    */
+   if (size < expected_size) {
       proxy_log("failed to validate shm size(%" PRIu64 ") expected(%" PRIu64 ")", size,
                 expected_size);
       return false;
