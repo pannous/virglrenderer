@@ -423,6 +423,36 @@ proxy_context_transfer_3d(struct virgl_context *base,
    return -1;
 }
 
+int
+proxy_context_get_iosurface_id(struct virgl_context *base,
+                               uint32_t res_id,
+                               uint32_t *out_iosurface_id)
+{
+   struct proxy_context *ctx = (struct proxy_context *)base;
+
+   if (!out_iosurface_id)
+      return -EINVAL;
+
+   const struct render_context_op_get_resource_iosurface_id_request req = {
+      .header.op = RENDER_CONTEXT_OP_GET_RESOURCE_IOSURFACE_ID,
+      .res_id = res_id,
+   };
+
+   if (!proxy_socket_send_request(&ctx->socket, &req, sizeof(req))) {
+      proxy_log("failed to request IOSurface id for resource %u", res_id);
+      return -1;
+   }
+
+   struct render_context_op_get_resource_iosurface_id_reply reply = { 0 };
+   if (!proxy_socket_receive_reply(&ctx->socket, &reply, sizeof(reply))) {
+      proxy_log("failed to receive IOSurface id reply for resource %u", res_id);
+      return -1;
+   }
+
+   *out_iosurface_id = reply.iosurface_id;
+   return 0;
+}
+
 static void
 proxy_context_detach_resource(struct virgl_context *base, struct virgl_resource *res)
 {

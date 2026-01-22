@@ -247,3 +247,12 @@ render_state_destroy_resource(uint32_t ctx_id, uint32_t res_id)
    SCOPE_LOCK_RENDERER();
    vkr_renderer_destroy_resource(ctx_id, res_id);
 }
+
+bool
+render_state_get_resource_iosurface_id(uint32_t ctx_id,
+                                       uint32_t res_id,
+                                       uint32_t *out_iosurface_id)
+{
+   SCOPE_LOCK_RENDERER();
+   return vkr_renderer_get_resource_iosurface_id(ctx_id, res_id, out_iosurface_id);
+}

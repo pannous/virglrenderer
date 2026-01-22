@@ -380,6 +380,10 @@ VIRGL_EXPORT int virgl_renderer_resource_get_info(int res_handle,
 VIRGL_EXPORT int virgl_renderer_resource_get_info_ext(int res_handle,
                                                       struct virgl_renderer_resource_info_ext *info);
 
+VIRGL_EXPORT int virgl_renderer_resource_get_iosurface_id(uint32_t ctx_id,
+                                                          uint32_t res_handle,
+                                                          uint32_t *out_iosurface_id);
+
 VIRGL_EXPORT void virgl_renderer_cleanup(void *cookie);
 
 /* reset the rendererer - destroy all contexts and resource */
@@ -450,6 +454,13 @@ struct virgl_renderer_resource_import_blob_args
 
 VIRGL_EXPORT int
 virgl_renderer_resource_import_blob(const struct virgl_renderer_resource_import_blob_args *args);
+
+/*
+ * Venus-only helper: register an existing virgl resource in the Venus context
+ * so VkImportMemoryResourceInfoMESA can resolve it.
+ */
+VIRGL_EXPORT int
+virgl_renderer_resource_register_venus(uint32_t ctx_id, uint32_t res_id);
 
 #define VIRGL_RENDERER_FENCE_FLAG_MERGEABLE      (1 << 0)
 VIRGL_EXPORT int virgl_renderer_context_create_fence(uint32_t ctx_id,

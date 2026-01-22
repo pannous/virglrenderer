@@ -387,6 +387,14 @@ vkr_dispatch_vkQueueSubmit(UNUSED struct vn_dispatch_context *dispatch,
    struct vn_device_proc_table *vk = &queue->device->proc_table;
 
    VkFence guest_fence = args->fence;  /* before handle replacement */
+
+   /* Debug: check vkr_fence object */
+   if (guest_fence) {
+      struct vkr_fence *fence_obj = vkr_fence_from_handle(guest_fence);
+      fprintf(stderr, "[VKR] vkQueueSubmit: fence_obj=%p ->handle.fence=%p\n",
+              (void*)fence_obj, fence_obj ? (void*)(uintptr_t)fence_obj->base.handle.fence : NULL);
+   }
+
    vn_replace_vkQueueSubmit_args_handle(args);
    VkFence host_fence = args->fence;   /* after handle replacement */
 
@@ -482,8 +490,16 @@ vkr_dispatch_vkGetFenceStatus(UNUSED struct vn_dispatch_context *dispatch,
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
 
+   VkFence guest_fence = args->fence;
    vn_replace_vkGetFenceStatus_args_handle(args);
+   VkFence host_fence = args->fence;
+
+   fprintf(stderr, "[VKR] vkGetFenceStatus: guest=%p host=%p\n",
+           (void*)(uintptr_t)guest_fence, (void*)(uintptr_t)host_fence);
+
    args->ret = vk->GetFenceStatus(args->device, args->fence);
+
+   fprintf(stderr, "[VKR] vkGetFenceStatus: ret=%d\n", args->ret);
 }
 
 static void
