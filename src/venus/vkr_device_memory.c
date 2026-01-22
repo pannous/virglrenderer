@@ -247,19 +247,72 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
       return;
    }
 
-   /* translate VkImportMemoryResourceInfoMESA into VkImportMemoryFdInfoKHR in place */
+   /* translate VkImportMemoryResourceInfoMESA into VkImportMemoryFdInfoKHR in place,
+    * or into VkImportMemoryHostPointerInfoEXT when using host pointer import (macOS).
+    */
    VkImportMemoryFdInfoKHR local_import_info = { .fd = -1 };
+   VkImportMemoryHostPointerInfoEXT local_import_host_ptr_info = { 0 };
+   int imported_res_fd = -1;
+   void *imported_res_ptr = NULL;
+   uint64_t imported_res_size = 0;
    VkImportMemoryResourceInfoMESA *res_info = NULL;
    VkBaseInStructure *prev_of_res_info = vkr_find_prev_struct(
       alloc_info, VK_STRUCTURE_TYPE_IMPORT_MEMORY_RESOURCE_INFO_MESA);
    if (prev_of_res_info) {
       res_info = (VkImportMemoryResourceInfoMESA *)prev_of_res_info->pNext;
-      if (!vkr_get_fd_info_from_resource_info(ctx, res_info, &local_import_info)) {
-         args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
-         return;
-      }
 
-      prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_info;
+      /* On macOS with host pointer import, translate resource import to host pointer import
+       * instead of fd import, since MoltenVK doesn't support DMA_BUF or opaque fd.
+       */
+      if (physical_dev->use_host_pointer_import) {
+         struct vkr_resource *res = vkr_context_get_resource(ctx, res_info->resourceId);
+         if (!res) {
+            vkr_log("failed to import resource: invalid res_id %u", res_info->resourceId);
+            vkr_context_set_fatal(ctx);
+            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+            return;
+         }
+
+         /* Get the fd and mmap it for host pointer import */
+         imported_res_fd = os_dupfd_cloexec(res->u.fd);
+         if (imported_res_fd < 0) {
+            vkr_log("failed to dup resource fd");
+            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+            return;
+         }
+
+         /* Get size from resource or align allocation size */
+         const VkDeviceSize alignment = physical_dev->min_imported_host_pointer_alignment;
+         imported_res_size = res->size ? res->size :
+            (alloc_info->allocationSize + alignment - 1) & ~(alignment - 1);
+
+         imported_res_ptr = mmap(NULL, imported_res_size, PROT_READ | PROT_WRITE,
+                                 MAP_SHARED, imported_res_fd, 0);
+         if (imported_res_ptr == MAP_FAILED) {
+            vkr_log("failed to mmap resource fd for host pointer import: %s", strerror(errno));
+            close(imported_res_fd);
+            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+            return;
+         }
+
+         local_import_host_ptr_info = (VkImportMemoryHostPointerInfoEXT){
+            .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
+            .pNext = res_info->pNext,
+            .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+            .pHostPointer = imported_res_ptr,
+         };
+         prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_host_ptr_info;
+
+         /* Update allocation size to match mmap'd region */
+         alloc_info->allocationSize = imported_res_size;
+      } else {
+         if (!vkr_get_fd_info_from_resource_info(ctx, res_info, &local_import_info)) {
+            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+            return;
+         }
+
+         prev_of_res_info->pNext = (const struct VkBaseInStructure *)&local_import_info;
+      }
    }
 
    VkExportMemoryAllocateInfo *export_info =
@@ -332,8 +385,12 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
                   align(alloc_info->allocationSize, getpagesize());
             }
          }
-      } else if (physical_dev->EXT_external_memory_dma_buf) {
-         /* Allocate dma_buf externally and force to import. */
+      } else if (physical_dev->EXT_external_memory_dma_buf &&
+                 !physical_dev->use_host_pointer_import) {
+         /* Allocate dma_buf externally and force to import.
+          * Skip this path when use_host_pointer_import is true (macOS) - the SHM
+          * fallback path below will handle memory allocation instead.
+          */
          if (export_info) {
             /* Strip export info since valid_fd_types can only be dma_buf here. */
             VkBaseInStructure *prev_of_export_info = vkr_find_prev_struct(
@@ -413,6 +470,14 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
          valid_fd_types |= 1 << VIRGL_RESOURCE_FD_OPAQUE;
       if (export_info->handleTypes & VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT)
          valid_fd_types |= 1 << VIRGL_RESOURCE_FD_DMABUF;
+   }
+
+   /* Consolidate imported resource tracking with SHM tracking */
+   if (imported_res_ptr) {
+      shm_fd = imported_res_fd;
+      shm_ptr = imported_res_ptr;
+      shm_size = imported_res_size;
+      valid_fd_types = 1 << VIRGL_RESOURCE_FD_SHM;
    }
 
    struct vkr_device_memory *mem = vkr_device_memory_create_and_add(ctx, args);

@@ -127,44 +127,110 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
          return;
    }
 
-   /* append extensions for our own use */
+   /* Build extension list for host device:
+    * 1. Filter out faked extensions (VK_KHR_external_memory_fd, VK_EXT_external_memory_dma_buf,
+    *    VK_EXT_image_drm_format_modifier) when using host pointer import
+    * 2. Add extensions we need (VK_EXT_external_memory_host on macOS)
+    * 3. Add VK_KHR_portability_subset if needed for MoltenVK
+    */
    const char **exts = NULL;
-   uint32_t ext_count = args->pCreateInfo->enabledExtensionCount;
-   /* When using host pointer import fallback, don't request VK_KHR_external_memory_fd
-    * from the host driver - use VK_EXT_external_memory_host instead */
+
+   /* List of extensions to filter out when using host pointer import */
+   const char *faked_exts[] = {
+      "VK_KHR_external_memory_fd",
+      "VK_EXT_external_memory_dma_buf",
+      "VK_EXT_image_drm_format_modifier",
+   };
+   const uint32_t num_faked_exts = sizeof(faked_exts) / sizeof(faked_exts[0]);
+
+   /* Count how many faked extensions the guest requested */
+   uint32_t faked_count = 0;
+   if (physical_dev->use_host_pointer_import) {
+      for (uint32_t i = 0; i < args->pCreateInfo->enabledExtensionCount; i++) {
+         for (uint32_t j = 0; j < num_faked_exts; j++) {
+            if (!strcmp(args->pCreateInfo->ppEnabledExtensionNames[i], faked_exts[j])) {
+               faked_count++;
+               break;
+            }
+         }
+      }
+   }
+
+   /* Calculate final extension count:
+    * - Start with guest-requested count
+    * - Subtract faked extensions (will be filtered out)
+    * - Add our own extensions
+    */
+   uint32_t ext_count = args->pCreateInfo->enabledExtensionCount - faked_count;
+
+   /* Add extensions for our own use */
    if (physical_dev->use_host_pointer_import) {
       ext_count += physical_dev->EXT_external_memory_host;
    } else {
       ext_count += physical_dev->KHR_external_memory_fd;
+      ext_count += physical_dev->EXT_external_memory_dma_buf;
    }
-   ext_count += physical_dev->EXT_external_memory_dma_buf;
    ext_count += physical_dev->KHR_external_fence_fd;
-   if (ext_count > args->pCreateInfo->enabledExtensionCount) {
-      exts = malloc(sizeof(*exts) * ext_count);
-      if (!exts) {
-         args->ret = VK_ERROR_OUT_OF_HOST_MEMORY;
-         return;
-      }
-      for (uint32_t i = 0; i < args->pCreateInfo->enabledExtensionCount; i++)
-         exts[i] = args->pCreateInfo->ppEnabledExtensionNames[i];
 
-      ext_count = args->pCreateInfo->enabledExtensionCount;
-      /* Use host pointer import extension on macOS/MoltenVK fallback path */
-      if (physical_dev->use_host_pointer_import) {
-         if (physical_dev->EXT_external_memory_host)
-            exts[ext_count++] = "VK_EXT_external_memory_host";
-      } else {
-         if (physical_dev->KHR_external_memory_fd)
-            exts[ext_count++] = "VK_KHR_external_memory_fd";
+   /* On MoltenVK, VK_KHR_portability_subset must always be enabled if advertised.
+    * Check if guest didn't already request it. */
+   bool needs_portability_subset = false;
+   if (physical_dev->use_host_pointer_import) {  /* MoltenVK indicator */
+      needs_portability_subset = true;
+      for (uint32_t i = 0; i < args->pCreateInfo->enabledExtensionCount; i++) {
+         if (!strcmp(args->pCreateInfo->ppEnabledExtensionNames[i], "VK_KHR_portability_subset")) {
+            needs_portability_subset = false;
+            break;
+         }
       }
-      if (physical_dev->EXT_external_memory_dma_buf)
-         exts[ext_count++] = "VK_EXT_external_memory_dma_buf";
-      if (physical_dev->KHR_external_fence_fd)
-         exts[ext_count++] = "VK_KHR_external_fence_fd";
-
-      ((VkDeviceCreateInfo *)args->pCreateInfo)->ppEnabledExtensionNames = exts;
-      ((VkDeviceCreateInfo *)args->pCreateInfo)->enabledExtensionCount = ext_count;
+      if (needs_portability_subset)
+         ext_count++;
    }
+
+   /* Allocate and build the filtered extension list */
+   exts = malloc(sizeof(*exts) * ext_count);
+   if (!exts) {
+      args->ret = VK_ERROR_OUT_OF_HOST_MEMORY;
+      return;
+   }
+
+   /* Copy guest extensions, filtering out faked ones */
+   uint32_t ext_idx = 0;
+   for (uint32_t i = 0; i < args->pCreateInfo->enabledExtensionCount; i++) {
+      const char *ext_name = args->pCreateInfo->ppEnabledExtensionNames[i];
+      bool is_faked = false;
+
+      if (physical_dev->use_host_pointer_import) {
+         for (uint32_t j = 0; j < num_faked_exts; j++) {
+            if (!strcmp(ext_name, faked_exts[j])) {
+               is_faked = true;
+               break;
+            }
+         }
+      }
+
+      if (!is_faked)
+         exts[ext_idx++] = ext_name;
+   }
+
+   /* Add our own extensions */
+   if (physical_dev->use_host_pointer_import) {
+      if (physical_dev->EXT_external_memory_host)
+         exts[ext_idx++] = "VK_EXT_external_memory_host";
+   } else {
+      if (physical_dev->KHR_external_memory_fd)
+         exts[ext_idx++] = "VK_KHR_external_memory_fd";
+      if (physical_dev->EXT_external_memory_dma_buf)
+         exts[ext_idx++] = "VK_EXT_external_memory_dma_buf";
+   }
+   if (physical_dev->KHR_external_fence_fd)
+      exts[ext_idx++] = "VK_KHR_external_fence_fd";
+   if (needs_portability_subset)
+      exts[ext_idx++] = "VK_KHR_portability_subset";
+
+   ext_count = ext_idx;
+   ((VkDeviceCreateInfo *)args->pCreateInfo)->ppEnabledExtensionNames = exts;
+   ((VkDeviceCreateInfo *)args->pCreateInfo)->enabledExtensionCount = ext_count;
 
    struct vkr_device *dev =
       vkr_context_alloc_object(ctx, sizeof(*dev), VK_OBJECT_TYPE_DEVICE, args->pDevice);
