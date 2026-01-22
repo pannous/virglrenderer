@@ -283,6 +283,11 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
          physical_dev->EXT_external_memory_host = true;
       else if (!strcmp(props->extensionName, "VK_KHR_external_fence_fd"))
          physical_dev->KHR_external_fence_fd = true;
+      else if (!strcmp(props->extensionName, "VK_EXT_metal_objects")) {
+         physical_dev->EXT_metal_objects = true;
+         /* This is host-only. Don't advertise to the guest. */
+         continue;
+      }
 
       const uint32_t spec_ver = vkr_extension_get_spec_version(props->extensionName);
       if (spec_ver) {
@@ -338,6 +343,11 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
          exts[advertised_count].specVersion = 1;
          advertised_count++;
          physical_dev->EXT_external_memory_dma_buf = true;
+         /* VK_EXT_external_memory_host - expose host pointer import to guest */
+         strncpy(exts[advertised_count].extensionName, "VK_EXT_external_memory_host",
+                 VK_MAX_EXTENSION_NAME_SIZE);
+         exts[advertised_count].specVersion = 1;
+         advertised_count++;
          /* VK_EXT_image_drm_format_modifier - we support LINEAR (0) modifier */
          strncpy(exts[advertised_count].extensionName, "VK_EXT_image_drm_format_modifier",
                  VK_MAX_EXTENSION_NAME_SIZE);

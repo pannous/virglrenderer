@@ -25,6 +25,7 @@ struct vkr_physical_device {
    bool EXT_external_memory_dma_buf;
    bool EXT_external_memory_host;
    bool EXT_image_drm_format_modifier;
+   bool EXT_metal_objects;
    bool use_host_pointer_import;  /* Use VK_EXT_external_memory_host instead of fd */
    VkDeviceSize min_imported_host_pointer_alignment;
 

@@ -7,5 +7,5 @@ Description: virgl GL renderer
 Version: 1.2.0
 Requires.private: epoxy >=  1.5.4
 Libs: -L${libdir} -lvirglrenderer
-Libs.private: -lm
+Libs.private: -lm -framework IOSurface -framework IOSurface
 Cflags: -I${includedir}/virgl

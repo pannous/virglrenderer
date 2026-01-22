@@ -80,6 +80,23 @@ render_context_dispatch_destroy_resource(struct render_context *ctx,
 }
 
 static bool
+render_context_dispatch_get_resource_iosurface_id(struct render_context *ctx,
+                                                  const union render_context_op_request *req,
+                                                  UNUSED const int *fds,
+                                                  UNUSED int fd_count)
+{
+   struct render_context_op_get_resource_iosurface_id_reply reply = {
+      .iosurface_id = 0,
+   };
+
+   render_state_get_resource_iosurface_id(ctx->ctx_id,
+                                          req->get_resource_iosurface_id.res_id,
+                                          &reply.iosurface_id);
+
+   return render_socket_send_reply(&ctx->socket, &reply, sizeof(reply));
+}
+
+static bool
 render_context_dispatch_import_resource(struct render_context *ctx,
                                         const union render_context_op_request *request,
                                         const int *fds,
@@ -190,6 +207,7 @@ static const struct render_context_dispatch_entry
       RENDER_CONTEXT_DISPATCH(CREATE_RESOURCE, create_resource, 0),
       RENDER_CONTEXT_DISPATCH(IMPORT_RESOURCE, import_resource, 1),
       RENDER_CONTEXT_DISPATCH(DESTROY_RESOURCE, destroy_resource, 0),
+      RENDER_CONTEXT_DISPATCH(GET_RESOURCE_IOSURFACE_ID, get_resource_iosurface_id, 0),
       RENDER_CONTEXT_DISPATCH(SUBMIT_CMD, submit_cmd, 0),
       RENDER_CONTEXT_DISPATCH(SUBMIT_FENCE, submit_fence, 0),
 #undef RENDER_CONTEXT_DISPATCH
