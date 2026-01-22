@@ -319,17 +319,34 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
       /* Pretend fd support for guest compatibility - Venus protocol doesn't use fd APIs directly */
       physical_dev->KHR_external_memory_fd = true;
 
-      /* Add VK_KHR_external_memory_fd to advertised extensions for guest */
-      VkExtensionProperties *new_exts = realloc(exts, sizeof(*exts) * (advertised_count + 1));
+      /* Add external memory extensions to advertised list for guest.
+       * We fake VK_KHR_external_memory_fd, VK_EXT_external_memory_dma_buf, and
+       * VK_EXT_image_drm_format_modifier by mapping them to our SHM-backed
+       * VK_EXT_external_memory_host implementation internally.
+       */
+      VkExtensionProperties *new_exts = realloc(exts, sizeof(*exts) * (advertised_count + 3));
       if (new_exts) {
          exts = new_exts;
+         /* VK_KHR_external_memory_fd */
          strncpy(exts[advertised_count].extensionName, "VK_KHR_external_memory_fd",
                  VK_MAX_EXTENSION_NAME_SIZE);
          exts[advertised_count].specVersion = 1;
          advertised_count++;
+         /* VK_EXT_external_memory_dma_buf - backed by SHM internally */
+         strncpy(exts[advertised_count].extensionName, "VK_EXT_external_memory_dma_buf",
+                 VK_MAX_EXTENSION_NAME_SIZE);
+         exts[advertised_count].specVersion = 1;
+         advertised_count++;
+         physical_dev->EXT_external_memory_dma_buf = true;
+         /* VK_EXT_image_drm_format_modifier - we support LINEAR (0) modifier */
+         strncpy(exts[advertised_count].extensionName, "VK_EXT_image_drm_format_modifier",
+                 VK_MAX_EXTENSION_NAME_SIZE);
+         exts[advertised_count].specVersion = 2;
+         advertised_count++;
+         physical_dev->EXT_image_drm_format_modifier = true;
       }
       VKR_STDERR_DEBUG("vkr_physical_device_init_extensions: using host pointer import "
-                       "(alignment=0x%llx) as VK_KHR_external_memory_fd fallback\n",
+                       "(alignment=0x%llx) as external memory fallback (fd+dmabuf+drm_modifier)\n",
                        (unsigned long long)physical_dev->min_imported_host_pointer_alignment);
    }
 
