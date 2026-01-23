@@ -39,6 +39,7 @@ enum render_context_op {
    RENDER_CONTEXT_OP_DESTROY_RESOURCE,
    RENDER_CONTEXT_OP_GET_RESOURCE_IOSURFACE_ID,
    RENDER_CONTEXT_OP_GET_LAST_HOSTPTR_FD,
+   RENDER_CONTEXT_OP_GET_HOSTPTR_FD_FOR_SIZE,
    RENDER_CONTEXT_OP_SUBMIT_CMD,
    RENDER_CONTEXT_OP_SUBMIT_FENCE,
 
@@ -198,6 +199,16 @@ struct render_context_op_get_last_hostptr_fd_reply {
    uint64_t size;
 };
 
+/* Query host-pointer allocation fd for a minimum size */
+struct render_context_op_get_hostptr_fd_for_size_request {
+   struct render_context_op_header header;
+   uint64_t min_size;
+};
+
+struct render_context_op_get_hostptr_fd_for_size_reply {
+   uint64_t size;
+};
+
 /* Submit a small command stream to the context.
  *
  * The size limit depends on the socket type.  Currently, SOCK_SEQPACKET is
@@ -238,6 +249,7 @@ union render_context_op_request {
    struct render_context_op_destroy_resource_request destroy_resource;
    struct render_context_op_get_resource_iosurface_id_request get_resource_iosurface_id;
    struct render_context_op_get_last_hostptr_fd_request get_last_hostptr_fd;
+   struct render_context_op_get_hostptr_fd_for_size_request get_hostptr_fd_for_size;
    struct render_context_op_submit_cmd_request submit_cmd;
    struct render_context_op_submit_fence_request submit_fence;
 };

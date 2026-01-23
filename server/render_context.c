@@ -118,6 +118,30 @@ render_context_dispatch_get_last_hostptr_fd(struct render_context *ctx,
 }
 
 static bool
+render_context_dispatch_get_hostptr_fd_for_size(struct render_context *ctx,
+                                                const union render_context_op_request *req,
+                                                UNUSED const int *fds,
+                                                UNUSED int fd_count)
+{
+   struct render_context_op_get_hostptr_fd_for_size_reply reply = {
+      .size = 0,
+   };
+   int out_fd = -1;
+
+   if (render_state_get_hostptr_fd_for_size(ctx->ctx_id,
+                                            req->get_hostptr_fd_for_size.min_size,
+                                            &out_fd, &reply.size) &&
+       out_fd >= 0) {
+      bool ok = render_socket_send_reply_with_fds(&ctx->socket, &reply, sizeof(reply),
+                                                  &out_fd, 1);
+      close(out_fd);
+      return ok;
+   }
+
+   return render_socket_send_reply(&ctx->socket, &reply, sizeof(reply));
+}
+
+static bool
 render_context_dispatch_import_resource(struct render_context *ctx,
                                         const union render_context_op_request *request,
                                         const int *fds,
@@ -230,6 +254,7 @@ static const struct render_context_dispatch_entry
       RENDER_CONTEXT_DISPATCH(DESTROY_RESOURCE, destroy_resource, 0),
       RENDER_CONTEXT_DISPATCH(GET_RESOURCE_IOSURFACE_ID, get_resource_iosurface_id, 0),
       RENDER_CONTEXT_DISPATCH(GET_LAST_HOSTPTR_FD, get_last_hostptr_fd, 0),
+      RENDER_CONTEXT_DISPATCH(GET_HOSTPTR_FD_FOR_SIZE, get_hostptr_fd_for_size, 0),
       RENDER_CONTEXT_DISPATCH(SUBMIT_CMD, submit_cmd, 0),
       RENDER_CONTEXT_DISPATCH(SUBMIT_FENCE, submit_fence, 0),
 #undef RENDER_CONTEXT_DISPATCH

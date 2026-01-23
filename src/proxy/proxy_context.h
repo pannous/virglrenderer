@@ -71,4 +71,10 @@ proxy_context_get_last_hostptr_fd(struct virgl_context *base,
                                   int *out_fd,
                                   uint64_t *out_size);
 
+int
+proxy_context_get_hostptr_fd_for_size(struct virgl_context *base,
+                                      uint64_t min_size,
+                                      int *out_fd,
+                                      uint64_t *out_size);
+
 #endif /* PROXY_CONTEXT_H */

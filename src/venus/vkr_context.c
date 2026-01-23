@@ -318,6 +318,32 @@ vkr_context_get_last_hostptr_fd(struct vkr_context *ctx,
    return true;
 }
 
+bool
+vkr_context_get_hostptr_fd_for_size(struct vkr_context *ctx,
+                                    uint64_t min_size,
+                                    int *out_fd,
+                                    uint64_t *out_size)
+{
+   if (!out_fd || !out_size || !min_size)
+      return false;
+
+   if (!ctx->hostptr_count)
+      return false;
+
+   for (uint32_t i = 0; i < ctx->hostptr_count; i++) {
+      if (ctx->hostptr_sizes[i] >= min_size) {
+         int dup_fd = os_dupfd_cloexec(ctx->hostptr_fds[i]);
+         if (dup_fd < 0)
+            return false;
+         *out_fd = dup_fd;
+         *out_size = ctx->hostptr_sizes[i];
+         return true;
+      }
+   }
+
+   return false;
+}
+
 void
 vkr_context_set_last_hostptr_fd(struct vkr_context *ctx,
                                 int fd,
@@ -330,11 +356,6 @@ vkr_context_set_last_hostptr_fd(struct vkr_context *ctx,
    if (dup_fd < 0)
       return;
 
-   if (ctx->last_hostptr_size && size < ctx->last_hostptr_size) {
-      close(dup_fd);
-      return;
-   }
-
    if (ctx->last_hostptr_fd >= 0)
       close(ctx->last_hostptr_fd);
 
@@ -342,6 +363,52 @@ vkr_context_set_last_hostptr_fd(struct vkr_context *ctx,
    ctx->last_hostptr_size = size;
    vkr_log("set last hostptr fd=%d size=%llu", dup_fd,
            (unsigned long long)size);
+
+   /* Track hostptrs by size for later lookup. */
+   if (!ctx->hostptr_cap) {
+      ctx->hostptr_cap = 16;
+      ctx->hostptr_fds = calloc(ctx->hostptr_cap, sizeof(*ctx->hostptr_fds));
+      ctx->hostptr_sizes = calloc(ctx->hostptr_cap, sizeof(*ctx->hostptr_sizes));
+      if (!ctx->hostptr_fds || !ctx->hostptr_sizes) {
+         free(ctx->hostptr_fds);
+         free(ctx->hostptr_sizes);
+         ctx->hostptr_fds = NULL;
+         ctx->hostptr_sizes = NULL;
+         ctx->hostptr_cap = 0;
+         return;
+      }
+   }
+
+   for (uint32_t i = 0; i < ctx->hostptr_count; i++) {
+      if (ctx->hostptr_sizes[i] == size) {
+         close(ctx->hostptr_fds[i]);
+         ctx->hostptr_fds[i] = os_dupfd_cloexec(fd);
+         return;
+      }
+   }
+
+   if (ctx->hostptr_count == ctx->hostptr_cap) {
+      if (size <= ctx->hostptr_sizes[0]) {
+         return;
+      }
+      close(ctx->hostptr_fds[0]);
+      memmove(&ctx->hostptr_fds[0], &ctx->hostptr_fds[1],
+              sizeof(*ctx->hostptr_fds) * (ctx->hostptr_count - 1));
+      memmove(&ctx->hostptr_sizes[0], &ctx->hostptr_sizes[1],
+              sizeof(*ctx->hostptr_sizes) * (ctx->hostptr_count - 1));
+      ctx->hostptr_count--;
+   }
+
+   uint32_t insert = ctx->hostptr_count;
+   while (insert > 0 && ctx->hostptr_sizes[insert - 1] > size) {
+      ctx->hostptr_sizes[insert] = ctx->hostptr_sizes[insert - 1];
+      ctx->hostptr_fds[insert] = ctx->hostptr_fds[insert - 1];
+      insert--;
+   }
+
+   ctx->hostptr_sizes[insert] = size;
+   ctx->hostptr_fds[insert] = os_dupfd_cloexec(fd);
+   ctx->hostptr_count++;
 }
 
 static bool
@@ -783,6 +850,13 @@ vkr_context_destroy(struct vkr_context *ctx)
 
    if (ctx->last_hostptr_fd >= 0)
       close(ctx->last_hostptr_fd);
+
+   for (uint32_t i = 0; i < ctx->hostptr_count; i++) {
+      if (ctx->hostptr_fds[i] >= 0)
+         close(ctx->hostptr_fds[i]);
+   }
+   free(ctx->hostptr_fds);
+   free(ctx->hostptr_sizes);
 
    free(ctx->debug_name);
    free(ctx);

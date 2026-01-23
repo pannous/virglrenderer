@@ -270,6 +270,21 @@ vkr_renderer_get_last_hostptr_fd(uint32_t ctx_id,
    return vkr_context_get_last_hostptr_fd(ctx, out_fd, out_size);
 }
 
+bool
+vkr_renderer_get_hostptr_fd_for_size(uint32_t ctx_id,
+                                     uint64_t min_size,
+                                     int *out_fd,
+                                     uint64_t *out_size)
+{
+   TRACE_FUNC();
+
+   struct vkr_context *ctx = vkr_renderer_lookup_context(ctx_id);
+   if (!ctx)
+      return false;
+
+   return vkr_context_get_hostptr_fd_for_size(ctx, min_size, out_fd, out_size);
+}
+
 void
 vkr_renderer_destroy_resource(uint32_t ctx_id, uint32_t res_id)
 {

@@ -603,6 +603,29 @@ int virgl_renderer_get_last_hostptr_fd(uint32_t ctx_id,
    return -EINVAL;
 }
 
+int virgl_renderer_get_hostptr_fd_for_size(uint32_t ctx_id,
+                                           uint64_t min_size,
+                                           int *out_fd,
+                                           uint64_t *out_size)
+{
+   TRACE_FUNC();
+
+#ifdef ENABLE_RENDER_SERVER
+   if (state.proxy_initialized) {
+      struct virgl_context *ctx = virgl_context_lookup(ctx_id);
+      if (!ctx)
+         return -EINVAL;
+      return proxy_context_get_hostptr_fd_for_size(ctx, min_size, out_fd, out_size);
+   }
+#endif
+
+   (void)ctx_id;
+   (void)min_size;
+   (void)out_fd;
+   (void)out_size;
+   return -EINVAL;
+}
+
 void virgl_renderer_get_cap_set(uint32_t cap_set, uint32_t *max_ver,
                                 uint32_t *max_size)
 {

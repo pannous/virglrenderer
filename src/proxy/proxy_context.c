@@ -490,6 +490,45 @@ proxy_context_get_last_hostptr_fd(struct virgl_context *base,
    return 0;
 }
 
+int
+proxy_context_get_hostptr_fd_for_size(struct virgl_context *base,
+                                      uint64_t min_size,
+                                      int *out_fd,
+                                      uint64_t *out_size)
+{
+   struct proxy_context *ctx = (struct proxy_context *)base;
+   int reply_fd = -1;
+   int reply_fd_count = 0;
+
+   if (!out_fd || !out_size || !min_size)
+      return -EINVAL;
+
+   const struct render_context_op_get_hostptr_fd_for_size_request req = {
+      .header.op = RENDER_CONTEXT_OP_GET_HOSTPTR_FD_FOR_SIZE,
+      .min_size = min_size,
+   };
+
+   if (!proxy_socket_send_request(&ctx->socket, &req, sizeof(req))) {
+      proxy_log("failed to request hostptr fd for size");
+      return -1;
+   }
+
+   struct render_context_op_get_hostptr_fd_for_size_reply reply = { 0 };
+   if (!proxy_socket_receive_reply_with_fds(&ctx->socket, &reply, sizeof(reply),
+                                            &reply_fd, 1, &reply_fd_count)) {
+      proxy_log("failed to receive hostptr fd for size reply");
+      return -1;
+   }
+
+   if (!reply_fd_count || reply_fd < 0 || !reply.size) {
+      return -ENOENT;
+   }
+
+   *out_fd = reply_fd;
+   *out_size = reply.size;
+   return 0;
+}
+
 static void
 proxy_context_detach_resource(struct virgl_context *base, struct virgl_resource *res)
 {

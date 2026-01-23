@@ -265,3 +265,13 @@ render_state_get_last_hostptr_fd(uint32_t ctx_id,
    SCOPE_LOCK_RENDERER();
    return vkr_renderer_get_last_hostptr_fd(ctx_id, out_fd, out_size);
 }
+
+bool
+render_state_get_hostptr_fd_for_size(uint32_t ctx_id,
+                                     uint64_t min_size,
+                                     int *out_fd,
+                                     uint64_t *out_size)
+{
+   SCOPE_LOCK_RENDERER();
+   return vkr_renderer_get_hostptr_fd_for_size(ctx_id, min_size, out_fd, out_size);
+}
