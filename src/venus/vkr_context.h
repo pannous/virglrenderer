@@ -103,6 +103,13 @@ struct vkr_context {
    struct vkr_instance *instance;
    char *instance_name;
 
+   int last_hostptr_fd;
+   uint64_t last_hostptr_size;
+   int *hostptr_fds;
+   uint64_t *hostptr_sizes;
+   uint32_t hostptr_count;
+   uint32_t hostptr_cap;
+
    struct list_head head;
    struct vulkan_library vulkan_library;
 };
@@ -122,6 +129,22 @@ bool
 vkr_context_set_resource_iosurface_id(struct vkr_context *ctx,
                                       uint32_t res_id,
                                       uint32_t iosurface_id);
+
+bool
+vkr_context_get_last_hostptr_fd(struct vkr_context *ctx,
+                                int *out_fd,
+                                uint64_t *out_size);
+
+bool
+vkr_context_get_hostptr_fd_for_size(struct vkr_context *ctx,
+                                    uint64_t min_size,
+                                    int *out_fd,
+                                    uint64_t *out_size);
+
+void
+vkr_context_set_last_hostptr_fd(struct vkr_context *ctx,
+                                int fd,
+                                uint64_t size);
 
 void
 vkr_context_destroy(struct vkr_context *ctx);

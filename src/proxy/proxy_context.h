@@ -66,4 +66,9 @@ proxy_context_get_iosurface_id(struct virgl_context *base,
                                uint32_t res_id,
                                uint32_t *out_iosurface_id);
 
+int
+proxy_context_get_last_hostptr_fd(struct virgl_context *base,
+                                  int *out_fd,
+                                  uint64_t *out_size);
+
 #endif /* PROXY_CONTEXT_H */

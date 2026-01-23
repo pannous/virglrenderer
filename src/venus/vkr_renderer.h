@@ -79,6 +79,11 @@ vkr_renderer_get_resource_iosurface_id(uint32_t ctx_id,
                                        uint32_t res_id,
                                        uint32_t *out_iosurface_id);
 
+bool
+vkr_renderer_get_last_hostptr_fd(uint32_t ctx_id,
+                                 int *out_fd,
+                                 uint64_t *out_size);
+
 void
 vkr_renderer_destroy_resource(uint32_t ctx_id, uint32_t res_id);
 

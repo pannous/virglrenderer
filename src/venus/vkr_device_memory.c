@@ -257,6 +257,47 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
    uint64_t imported_res_size = 0;
    uint32_t imported_res_id = 0;
    VkImportMemoryResourceInfoMESA *res_info = NULL;
+
+   /* On macOS, MoltenVK doesn't support fd imports. Translate fd import
+    * into host pointer import when use_host_pointer_import is enabled.
+    */
+   VkImportMemoryHostPointerInfoEXT local_import_fd_host_ptr_info = { 0 };
+   void *import_fd_ptr = NULL;
+   uint64_t import_fd_size = 0;
+   VkBaseInStructure *prev_of_fd_info = vkr_find_prev_struct(
+      alloc_info, VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR);
+   if (prev_of_fd_info && physical_dev->use_host_pointer_import) {
+      VkImportMemoryFdInfoKHR *fd_info = (VkImportMemoryFdInfoKHR *)prev_of_fd_info->pNext;
+      if (fd_info && fd_info->fd >= 0) {
+         const VkDeviceSize alignment = physical_dev->min_imported_host_pointer_alignment;
+         import_fd_size =
+            (alloc_info->allocationSize + alignment - 1) & ~(alignment - 1);
+
+         import_fd_ptr = mmap(NULL, import_fd_size, PROT_READ | PROT_WRITE,
+                              MAP_SHARED, fd_info->fd, 0);
+         if (import_fd_ptr == MAP_FAILED) {
+            vkr_log("failed to mmap import fd for host pointer import: %s", strerror(errno));
+            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+            return;
+         }
+
+         local_import_fd_host_ptr_info = (VkImportMemoryHostPointerInfoEXT){
+            .sType = VK_STRUCTURE_TYPE_IMPORT_MEMORY_HOST_POINTER_INFO_EXT,
+            .pNext = fd_info->pNext,
+            .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_HOST_ALLOCATION_BIT_EXT,
+            .pHostPointer = import_fd_ptr,
+         };
+         prev_of_fd_info->pNext =
+            (const struct VkBaseInStructure *)&local_import_fd_host_ptr_info;
+
+         alloc_info->allocationSize = import_fd_size;
+
+         /* Track for cleanup like other host-pointer imports. */
+         imported_res_fd = fd_info->fd;
+         imported_res_ptr = import_fd_ptr;
+         imported_res_size = import_fd_size;
+      }
+   }
    VkBaseInStructure *prev_of_res_info = vkr_find_prev_struct(
       alloc_info, VK_STRUCTURE_TYPE_IMPORT_MEMORY_RESOURCE_INFO_MESA);
    if (prev_of_res_info) {
@@ -480,6 +521,10 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
       shm_ptr = imported_res_ptr;
       shm_size = imported_res_size;
       valid_fd_types = 1 << VIRGL_RESOURCE_FD_SHM;
+   }
+
+   if (shm_fd >= 0 && shm_size) {
+      vkr_context_set_last_hostptr_fd(ctx, shm_fd, shm_size);
    }
 
    struct vkr_device_memory *mem = vkr_device_memory_create_and_add(ctx, args);

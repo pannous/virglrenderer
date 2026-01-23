@@ -256,3 +256,12 @@ render_state_get_resource_iosurface_id(uint32_t ctx_id,
    SCOPE_LOCK_RENDERER();
    return vkr_renderer_get_resource_iosurface_id(ctx_id, res_id, out_iosurface_id);
 }
+
+bool
+render_state_get_last_hostptr_fd(uint32_t ctx_id,
+                                 int *out_fd,
+                                 uint64_t *out_size)
+{
+   SCOPE_LOCK_RENDERER();
+   return vkr_renderer_get_last_hostptr_fd(ctx_id, out_fd, out_size);
+}

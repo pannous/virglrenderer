@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include "util/anon_file.h"
+#include "virgl_util.h"
 #include "venus-protocol/vn_protocol_renderer_dispatches.h"
 
 #define XXH_INLINE_ALL
@@ -296,6 +297,51 @@ vkr_context_set_resource_iosurface_id(struct vkr_context *ctx,
    mtx_unlock(&ctx->resource_mutex);
 
    return updated;
+}
+
+bool
+vkr_context_get_last_hostptr_fd(struct vkr_context *ctx,
+                                int *out_fd,
+                                uint64_t *out_size)
+{
+   if (!out_fd || !out_size)
+      return false;
+
+   if (ctx->last_hostptr_fd < 0 || !ctx->last_hostptr_size)
+      return false;
+
+   *out_fd = os_dupfd_cloexec(ctx->last_hostptr_fd);
+   if (*out_fd < 0)
+      return false;
+
+   *out_size = ctx->last_hostptr_size;
+   return true;
+}
+
+void
+vkr_context_set_last_hostptr_fd(struct vkr_context *ctx,
+                                int fd,
+                                uint64_t size)
+{
+   if (fd < 0 || !size)
+      return;
+
+   const int dup_fd = os_dupfd_cloexec(fd);
+   if (dup_fd < 0)
+      return;
+
+   if (ctx->last_hostptr_size && size < ctx->last_hostptr_size) {
+      close(dup_fd);
+      return;
+   }
+
+   if (ctx->last_hostptr_fd >= 0)
+      close(ctx->last_hostptr_fd);
+
+   ctx->last_hostptr_fd = dup_fd;
+   ctx->last_hostptr_size = size;
+   vkr_log("set last hostptr fd=%d size=%llu", dup_fd,
+           (unsigned long long)size);
 }
 
 static bool
@@ -735,6 +781,9 @@ vkr_context_destroy(struct vkr_context *ctx)
 
    vkr_library_unload(&ctx->vulkan_library);
 
+   if (ctx->last_hostptr_fd >= 0)
+      close(ctx->last_hostptr_fd);
+
    free(ctx->debug_name);
    free(ctx);
 }
@@ -787,6 +836,9 @@ vkr_context_create(uint32_t ctx_id,
    ctx->validate_fatal = false;
    if (VKR_DEBUG(VALIDATE))
       ctx->validate_level = VKR_CONTEXT_VALIDATE_FULL;
+
+   ctx->last_hostptr_fd = -1;
+   ctx->last_hostptr_size = 0;
 
 #ifdef ENABLE_RENDER_SERVER_WORKER_THREAD
    ctx->on_worker_thread = true;

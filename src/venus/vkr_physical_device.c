@@ -360,6 +360,47 @@ vkr_physical_device_init_extensions(struct vkr_physical_device *physical_dev)
                        (unsigned long long)physical_dev->min_imported_host_pointer_alignment);
    }
 
+   /* Allow forcing host pointer import even when KHR_external_memory_fd exists.
+    * This is useful for the macOS IOSurface path where linear images without
+    * DRM modifiers need VK_EXT_external_memory_host.
+    */
+   if (!physical_dev->use_host_pointer_import &&
+       physical_dev->EXT_external_memory_host &&
+       (getenv("VKR_FORCE_HOSTPTR_IMPORT") || getenv("VKR_USE_IOSURFACE"))) {
+      VkPhysicalDeviceExternalMemoryHostPropertiesEXT host_props = {
+         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_MEMORY_HOST_PROPERTIES_EXT,
+      };
+      VkPhysicalDeviceProperties2 props2 = {
+         .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2,
+         .pNext = &host_props,
+      };
+      vk->GetPhysicalDeviceProperties2(handle, &props2);
+      physical_dev->min_imported_host_pointer_alignment = host_props.minImportedHostPointerAlignment;
+      physical_dev->use_host_pointer_import = true;
+
+      /* Ensure VK_EXT_external_memory_host is advertised to the guest. */
+      bool have_ext_host = false;
+      for (uint32_t i = 0; i < advertised_count; i++) {
+         if (!strcmp(exts[i].extensionName, "VK_EXT_external_memory_host")) {
+            have_ext_host = true;
+            break;
+         }
+      }
+      if (!have_ext_host) {
+         VkExtensionProperties *new_exts = realloc(exts, sizeof(*exts) * (advertised_count + 1));
+         if (new_exts) {
+            exts = new_exts;
+            strncpy(exts[advertised_count].extensionName, "VK_EXT_external_memory_host",
+                    VK_MAX_EXTENSION_NAME_SIZE);
+            exts[advertised_count].specVersion = 1;
+            advertised_count++;
+         }
+      }
+      VKR_STDERR_DEBUG("vkr_physical_device_init_extensions: forced host pointer import "
+                       "(alignment=0x%llx) for IOSurface path\n",
+                       (unsigned long long)physical_dev->min_imported_host_pointer_alignment);
+   }
+
    if (physical_dev->KHR_external_fence_fd) {
       const VkPhysicalDeviceExternalFenceInfo fence_info = {
          .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_FENCE_INFO,

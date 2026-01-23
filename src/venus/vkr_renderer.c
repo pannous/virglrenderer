@@ -91,6 +91,9 @@ vkr_renderer_fini(void)
 static struct vkr_context *
 vkr_renderer_lookup_context(uint32_t ctx_id)
 {
+   if (!vkr_state.cbs)
+      return NULL;
+
    list_for_each_entry (struct vkr_context, ctx, &vkr_state.contexts, head) {
       if (ctx->ctx_id == ctx_id)
          return ctx;
@@ -251,6 +254,20 @@ vkr_renderer_get_resource_iosurface_id(uint32_t ctx_id,
       return false;
 
    return vkr_context_get_resource_iosurface_id(ctx, res_id, out_iosurface_id);
+}
+
+bool
+vkr_renderer_get_last_hostptr_fd(uint32_t ctx_id,
+                                 int *out_fd,
+                                 uint64_t *out_size)
+{
+   TRACE_FUNC();
+
+   struct vkr_context *ctx = vkr_renderer_lookup_context(ctx_id);
+   if (!ctx)
+      return false;
+
+   return vkr_context_get_last_hostptr_fd(ctx, out_fd, out_size);
 }
 
 void

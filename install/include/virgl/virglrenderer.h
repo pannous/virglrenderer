@@ -384,6 +384,10 @@ VIRGL_EXPORT int virgl_renderer_resource_get_iosurface_id(uint32_t ctx_id,
                                                           uint32_t res_handle,
                                                           uint32_t *out_iosurface_id);
 
+VIRGL_EXPORT int virgl_renderer_get_last_hostptr_fd(uint32_t ctx_id,
+                                                    int *out_fd,
+                                                    uint64_t *out_size);
+
 VIRGL_EXPORT void virgl_renderer_cleanup(void *cookie);
 
 /* reset the rendererer - destroy all contexts and resource */
