@@ -9,6 +9,7 @@
 
 #include "util/anon_file.h"
 #include "venus-protocol/vn_protocol_renderer_transport.h"
+#include "virgl_resource.h"
 #include "virgl_util.h"
 
 #include "vkr_device_memory_gen.h"
@@ -319,9 +320,20 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
          /* Get the fd and mmap it for host pointer import */
          imported_res_fd = os_dupfd_cloexec(res->u.fd);
          if (imported_res_fd < 0) {
-            vkr_log("failed to dup resource fd");
-            args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
-            return;
+            /* Fallback: if vkr_resource doesn't have fd, try exporting from virgl_resource */
+            struct virgl_resource *vres = virgl_resource_lookup(res_info->resourceId);
+            if (vres) {
+               int temp_fd = -1;
+               enum virgl_resource_fd_type fd_type = virgl_resource_export_fd(vres, &temp_fd);
+               if (fd_type == VIRGL_RESOURCE_FD_SHM && temp_fd >= 0) {
+                  imported_res_fd = temp_fd;
+               }
+            }
+            if (imported_res_fd < 0) {
+               vkr_log("failed to dup resource fd");
+               args->ret = VK_ERROR_INVALID_EXTERNAL_HANDLE;
+               return;
+            }
          }
 
          /* Get size from resource or align allocation size */
