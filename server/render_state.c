@@ -98,7 +98,8 @@ render_state_cb_debug_logger(UNUSED enum virgl_log_level_flags log_level,
                              const char *message,
                              UNUSED void* user_data)
 {
-   render_log(message);
+   if (message && message[0] != '\0')
+      render_log("%s", message);
 }
 
 static void
