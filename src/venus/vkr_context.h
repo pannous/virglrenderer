@@ -32,8 +32,6 @@ struct vkr_resource {
    } u;
 
    size_t size;
-
-   uint32_t iosurface_id;
 };
 
 enum vkr_context_validate_level {
@@ -113,16 +111,6 @@ vkr_context_create(uint32_t ctx_id,
                    size_t debug_len,
                    const char *debug_name);
 
-bool
-vkr_context_get_resource_iosurface_id(struct vkr_context *ctx,
-                                      uint32_t res_id,
-                                      uint32_t *out_iosurface_id);
-
-bool
-vkr_context_set_resource_iosurface_id(struct vkr_context *ctx,
-                                      uint32_t res_id,
-                                      uint32_t iosurface_id);
-
 void
 vkr_context_destroy(struct vkr_context *ctx);
 
@@ -152,9 +140,6 @@ vkr_context_import_resource(struct vkr_context *ctx,
                             enum virgl_resource_fd_type fd_type,
                             int fd,
                             uint64_t size);
-
-struct vkr_resource *
-vkr_context_get_resource_or_import(struct vkr_context *ctx, uint32_t res_id);
 
 void
 vkr_context_destroy_resource(struct vkr_context *ctx, uint32_t res_id);

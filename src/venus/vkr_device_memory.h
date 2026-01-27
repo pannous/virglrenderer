@@ -35,8 +35,6 @@ struct vkr_device_memory {
    uint32_t memory_type_index;
 
    bool exported;
-
-   uint32_t imported_res_id;
 };
 VKR_DEFINE_OBJECT_CAST(device_memory, VK_OBJECT_TYPE_DEVICE_MEMORY, VkDeviceMemory)
 

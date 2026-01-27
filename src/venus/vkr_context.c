@@ -235,7 +235,6 @@ vkr_context_import_resource_internal(struct vkr_context *ctx,
    res->res_id = res_id;
    res->fd_type = fd_type;
    res->size = blob_size;
-   res->iosurface_id = 0;
 
    /* fd and mmap_ptr cannot be valid at the same time, but allowed to be -1 and NULL */
    assert(fd < 0 || !mmap_ptr);
@@ -250,52 +249,6 @@ vkr_context_import_resource_internal(struct vkr_context *ctx,
    }
 
    return true;
-}
-
-bool
-vkr_context_get_resource_iosurface_id(struct vkr_context *ctx,
-                                      uint32_t res_id,
-                                      uint32_t *out_iosurface_id)
-{
-   bool found = false;
-
-   if (!out_iosurface_id)
-      return false;
-
-   mtx_lock(&ctx->resource_mutex);
-   struct hash_entry *entry = _mesa_hash_table_search(ctx->resource_table, &res_id);
-   if (entry) {
-      const struct vkr_resource *res = entry->data;
-      *out_iosurface_id = res->iosurface_id;
-      found = true;
-   }
-   mtx_unlock(&ctx->resource_mutex);
-
-   return found;
-}
-
-bool
-vkr_context_set_resource_iosurface_id(struct vkr_context *ctx,
-                                      uint32_t res_id,
-                                      uint32_t iosurface_id)
-{
-   bool updated = false;
-
-   if (!iosurface_id)
-      return false;
-
-   mtx_lock(&ctx->resource_mutex);
-   struct hash_entry *entry = _mesa_hash_table_search(ctx->resource_table, &res_id);
-   if (entry) {
-      struct vkr_resource *res = entry->data;
-      if (!res->iosurface_id) {
-         res->iosurface_id = iosurface_id;
-         updated = true;
-      }
-   }
-   mtx_unlock(&ctx->resource_mutex);
-
-   return updated;
 }
 
 static bool
@@ -426,43 +379,6 @@ vkr_context_import_resource(struct vkr_context *ctx,
       return vkr_context_import_resource_from_shm(ctx, res_id, size, fd);
 
    return vkr_context_import_resource_internal(ctx, res_id, size, fd_type, fd, NULL);
-}
-
-struct vkr_resource *
-vkr_context_get_resource_or_import(struct vkr_context *ctx, uint32_t res_id)
-{
-   struct vkr_resource *res = vkr_context_get_resource(ctx, res_id);
-   if (res)
-      return res;
-
-   struct virgl_resource *vres = virgl_resource_lookup(res_id);
-   if (!vres)
-      return NULL;
-
-   int fd = -1;
-   enum virgl_resource_fd_type fd_type = virgl_resource_export_fd(vres, &fd);
-   if (fd_type == VIRGL_RESOURCE_FD_INVALID)
-      return NULL;
-
-   uint64_t size = vres->map_size;
-   if (!size && vres->vulkan_info.allocation_size)
-      size = vres->vulkan_info.allocation_size;
-   if (!size) {
-      if (fd >= 0)
-         close(fd);
-      return NULL;
-   }
-
-   if (!vkr_context_import_resource(ctx, res_id, fd_type, fd, size)) {
-      if (fd >= 0)
-         close(fd);
-      return NULL;
-   }
-
-   if (fd_type == VIRGL_RESOURCE_FD_SHM && fd >= 0)
-      close(fd);
-
-   return vkr_context_get_resource(ctx, res_id);
 }
 
 void
@@ -610,29 +526,18 @@ vkr_context_ring_monitor_thread(void *arg)
    snprintf(thread_name, ARRAY_SIZE(thread_name), "vkr-ringmon-%d", ctx->ctx_id);
    u_thread_setname(thread_name);
 
-   fprintf(stderr, "VKR_RING_MONITOR: thread started for ctx %d\n", ctx->ctx_id);
-
    struct timespec ts;
    int ret = thrd_busy;
-   int iter_count = 0;
    assert(ctx->ring_monitor.started);
    while (ctx->ring_monitor.started) {
       /* only notify at the configured rate, not faster. */
       if (ret == thrd_busy) {
          mtx_lock(&ctx->ring_mutex);
-         int ring_count = 0;
-         int monitor_count = 0;
          list_for_each_entry (struct vkr_ring, ring, &ctx->rings, head) {
-            ring_count++;
-            if (ring->monitor) {
-               monitor_count++;
+            if (ring->monitor)
                vkr_ring_set_status_bits(ring, VK_RING_STATUS_ALIVE_BIT_MESA);
-            }
          }
          mtx_unlock(&ctx->ring_mutex);
-         if (iter_count++ < 5 || (iter_count % 100) == 0)
-            fprintf(stderr, "VKR_RING_MONITOR: iter=%d rings=%d monitored=%d\n",
-                    iter_count, ring_count, monitor_count);
          ret = 0;
       } else if (ret)
          break;
@@ -660,9 +565,6 @@ vkr_context_ring_monitor_init(struct vkr_context *ctx, uint32_t report_period_us
    assert(report_period_us > 0);
    assert(!ctx->ring_monitor.started);
 
-   fprintf(stderr, "VKR_RING_MONITOR: initializing for ctx %d, period=%u us\n",
-           ctx->ctx_id, report_period_us);
-
    if (mtx_init(&ctx->ring_monitor.mutex, mtx_plain) != thrd_success)
       goto err_mtx_init;
    if (cnd_init(&ctx->ring_monitor.cond) != thrd_success)
@@ -674,7 +576,6 @@ vkr_context_ring_monitor_init(struct vkr_context *ctx, uint32_t report_period_us
    if (ret != thrd_success)
       goto err_monitor_thrd_create;
 
-   fprintf(stderr, "VKR_RING_MONITOR: thread created successfully\n");
    return true;
 
 err_monitor_thrd_create:

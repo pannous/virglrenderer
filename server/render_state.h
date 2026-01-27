@@ -53,9 +53,4 @@ render_state_import_resource(uint32_t ctx_id,
 void
 render_state_destroy_resource(uint32_t ctx_id, uint32_t res_id);
 
-bool
-render_state_get_resource_iosurface_id(uint32_t ctx_id,
-                                       uint32_t res_id,
-                                       uint32_t *out_iosurface_id);
-
 #endif /* RENDER_STATE_H */

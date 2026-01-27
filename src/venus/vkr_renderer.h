@@ -71,14 +71,6 @@ vkr_renderer_import_resource(uint32_t ctx_id,
                              int fd,
                              uint64_t size);
 
-bool
-vkr_renderer_get_or_import_resource(uint32_t ctx_id, uint32_t res_id);
-
-bool
-vkr_renderer_get_resource_iosurface_id(uint32_t ctx_id,
-                                       uint32_t res_id,
-                                       uint32_t *out_iosurface_id);
-
 void
 vkr_renderer_destroy_resource(uint32_t ctx_id, uint32_t res_id);
 

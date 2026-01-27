@@ -6,143 +6,7 @@
 #include "vkr_image.h"
 
 #include "vkr_image_gen.h"
-#include "vkr_device_memory.h"
-#include "vkr_context.h"
 #include "vkr_physical_device.h"
-
-#ifdef __APPLE__
-#include <stdlib.h>
-#include <IOSurface/IOSurface.h>
-#include <vulkan/vulkan_metal.h>
-#endif
-
-#ifdef __APPLE__
-static bool
-vkr_image_should_export_iosurface(const struct vkr_physical_device *physical_dev,
-                                  const VkImageCreateInfo *info)
-{
-   if (!physical_dev->use_host_pointer_import || !physical_dev->EXT_metal_objects)
-      return false;
-
-   if (!getenv("VKR_USE_IOSURFACE"))
-      return false;
-
-   if (vkr_find_struct(info->pNext, VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT))
-      return false;
-
-   if (info->imageType != VK_IMAGE_TYPE_2D)
-      return false;
-
-   if (info->samples != VK_SAMPLE_COUNT_1_BIT)
-      return false;
-
-   if (!(info->usage & VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT))
-      return false;
-
-   if (info->arrayLayers != 1)
-      return false;
-
-   return true;
-}
-
-static void
-vkr_image_strip_drm_modifier(struct vkr_physical_device *physical_dev,
-                             VkImageCreateInfo *info)
-{
-   if (!physical_dev->use_host_pointer_import)
-      return;
-
-   if (info->tiling != VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
-      return;
-
-   VkBaseInStructure *prev =
-      vkr_find_prev_struct(info, VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT);
-   if (prev && prev->pNext) {
-      prev->pNext = prev->pNext->pNext;
-      vkr_log("stripped VkImageDrmFormatModifierExplicitCreateInfoEXT from VkImageCreateInfo");
-   }
-
-   prev =
-      vkr_find_prev_struct(info, VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_LIST_CREATE_INFO_EXT);
-   if (prev && prev->pNext) {
-      prev->pNext = prev->pNext->pNext;
-      vkr_log("stripped VkImageDrmFormatModifierListCreateInfoEXT from VkImageCreateInfo");
-   }
-
-   info->tiling = VK_IMAGE_TILING_LINEAR;
-   vkr_log("forcing VkImageCreateInfo tiling to VK_IMAGE_TILING_LINEAR for MoltenVK");
-}
-
-static void
-vkr_image_strip_external_memory(struct vkr_physical_device *physical_dev,
-                                VkImageCreateInfo *info)
-{
-   if (!physical_dev->use_host_pointer_import)
-      return;
-
-   /* MoltenVK does not support external-memory image creation for the
-    * handle types we expose to the guest (DMA_BUF/host pointer), so
-    * vkCreateImage can fail even though we will import memory later.
-    * We strip VkExternalMemoryImageCreateInfo to let image creation
-    * succeed, then rely on the host-pointer import path at allocate/bind.
-    * Alternative paths:
-    *  - Guest uses VK_EXT_external_memory_host (if advertised) and creates
-    *    non-external images, importing host pointers only at allocation.
-    *  - Implement a MoltenVK-side extension/patch to accept external images
-    *    for these handle types.
-    *  - Use buffer+copy or other blit paths (not zero-copy).
-    */
-   VkBaseInStructure *prev =
-      vkr_find_prev_struct(info, VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO);
-   if (prev && prev->pNext) {
-      prev->pNext = prev->pNext->pNext;
-      vkr_log("stripped VkExternalMemoryImageCreateInfo from VkImageCreateInfo");
-   }
-}
-
-static void
-vkr_image_try_export_iosurface(struct vkr_context *ctx,
-                               struct vkr_device *dev,
-                               VkImage image,
-                               uint32_t res_id)
-{
-   uint32_t existing = 0;
-   if (!res_id)
-      return;
-
-   if (vkr_context_get_resource_iosurface_id(ctx, res_id, &existing) && existing)
-      return;
-
-   if (!getenv("VKR_USE_IOSURFACE"))
-      return;
-
-   PFN_vkExportMetalObjectsEXT export_fn =
-      (PFN_vkExportMetalObjectsEXT)dev->physical_device->proc_table.GetDeviceProcAddr(
-         dev->base.handle.device, "vkExportMetalObjectsEXT");
-   if (!export_fn)
-      return;
-
-   VkExportMetalIOSurfaceInfoEXT ios_info = {
-      .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_IO_SURFACE_INFO_EXT,
-      .image = image,
-      .ioSurface = NULL,
-   };
-   VkExportMetalObjectsInfoEXT metal_info = {
-      .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECTS_INFO_EXT,
-      .pNext = &ios_info,
-   };
-
-   export_fn(dev->base.handle.device, &metal_info);
-
-   if (ios_info.ioSurface) {
-      const uint32_t ios_id = IOSurfaceGetID(ios_info.ioSurface);
-      if (ios_id) {
-         vkr_context_set_resource_iosurface_id(ctx, res_id, ios_id);
-         vkr_log("IOSurface export: res_id=%u iosurface_id=%u", res_id, ios_id);
-      }
-   }
-}
-#endif
 
 static void
 vkr_dispatch_vkCreateImage(struct vn_dispatch_context *dispatch,
@@ -167,28 +31,7 @@ vkr_dispatch_vkCreateImage(struct vn_dispatch_context *dispatch,
     * situation because the app does not consider the memory external.
     */
 
-   struct vkr_context *ctx = dispatch->data;
-   struct vkr_device *dev = vkr_device_from_handle(args->device);
-   VkImageCreateInfo *info = (VkImageCreateInfo *)args->pCreateInfo;
-#ifdef __APPLE__
-   vkr_image_strip_drm_modifier(dev->physical_device, info);
-   vkr_image_strip_external_memory(dev->physical_device, info);
-
-   if (vkr_image_should_export_iosurface(dev->physical_device, info)) {
-      const void *orig_next = info->pNext;
-      VkExportMetalObjectCreateInfoEXT metal_export_info = {
-         .sType = VK_STRUCTURE_TYPE_EXPORT_METAL_OBJECT_CREATE_INFO_EXT,
-         .pNext = orig_next,
-         .exportObjectType = VK_EXPORT_METAL_OBJECT_TYPE_METAL_IOSURFACE_BIT_EXT,
-      };
-      info->pNext = &metal_export_info;
-      vkr_image_create_and_add(ctx, args);
-      info->pNext = orig_next;
-      return;
-   }
-#endif
-
-   vkr_image_create_and_add(ctx, args);
+   vkr_image_create_and_add(dispatch->data, args);
 }
 
 static void
@@ -251,62 +94,26 @@ vkr_dispatch_vkGetImageSparseMemoryRequirements2(
 }
 
 static void
-vkr_dispatch_vkBindImageMemory(struct vn_dispatch_context *dispatch,
+vkr_dispatch_vkBindImageMemory(UNUSED struct vn_dispatch_context *dispatch,
                                struct vn_command_vkBindImageMemory *args)
 {
-   struct vkr_context *ctx = dispatch->data;
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
-   struct vkr_device_memory *mem = vkr_device_memory_from_handle(args->memory);
 
    vn_replace_vkBindImageMemory_args_handle(args);
    args->ret =
       vk->BindImageMemory(args->device, args->image, args->memory, args->memoryOffset);
-
-#ifdef __APPLE__
-   if (args->ret == VK_SUCCESS && mem && mem->imported_res_id)
-      vkr_image_try_export_iosurface(ctx, dev, args->image, mem->imported_res_id);
-#endif
 }
 
 static void
-vkr_dispatch_vkBindImageMemory2(struct vn_dispatch_context *dispatch,
+vkr_dispatch_vkBindImageMemory2(UNUSED struct vn_dispatch_context *dispatch,
                                 struct vn_command_vkBindImageMemory2 *args)
 {
-   struct vkr_context *ctx = dispatch->data;
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
-   uint32_t *imported_res_ids = NULL;
-   uint32_t bind_count = args->bindInfoCount;
-
-#ifdef __APPLE__
-   if (bind_count) {
-      imported_res_ids = calloc(bind_count, sizeof(*imported_res_ids));
-      if (imported_res_ids) {
-         for (uint32_t i = 0; i < bind_count; i++) {
-            struct vkr_device_memory *mem =
-               vkr_device_memory_from_handle(args->pBindInfos[i].memory);
-            if (mem)
-               imported_res_ids[i] = mem->imported_res_id;
-         }
-      }
-   }
-#endif
 
    vn_replace_vkBindImageMemory2_args_handle(args);
    args->ret = vk->BindImageMemory2(args->device, args->bindInfoCount, args->pBindInfos);
-
-#ifdef __APPLE__
-   if (args->ret == VK_SUCCESS && imported_res_ids) {
-      for (uint32_t i = 0; i < bind_count; i++) {
-         if (imported_res_ids[i])
-            vkr_image_try_export_iosurface(ctx, dev, args->pBindInfos[i].image,
-                                           imported_res_ids[i]);
-      }
-   }
-
-   free(imported_res_ids);
-#endif
 }
 
 static void

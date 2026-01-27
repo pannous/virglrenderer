@@ -61,9 +61,4 @@ struct proxy_context {
    } sync_thread;
 };
 
-int
-proxy_context_get_iosurface_id(struct virgl_context *base,
-                               uint32_t res_id,
-                               uint32_t *out_iosurface_id);
-
 #endif /* PROXY_CONTEXT_H */

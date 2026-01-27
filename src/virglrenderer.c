@@ -41,12 +41,8 @@
 #include "util/u_format.h"
 #include "util/u_math.h"
 #include "vkr_allocator.h"
-#include "vkr_renderer.h"
 #include "drm_renderer.h"
 #include "proxy/proxy_renderer.h"
-#ifdef ENABLE_RENDER_SERVER
-#include "proxy/proxy_context.h"
-#endif
 #include "vrend/vrend_renderer.h"
 #include "vrend/vrend_winsys.h"
 
@@ -559,27 +555,6 @@ int virgl_renderer_resource_get_info_ext(int res_handle,
    }
 
    return 0;
-}
-
-int virgl_renderer_resource_get_iosurface_id(uint32_t ctx_id,
-                                             uint32_t res_handle,
-                                             uint32_t *out_iosurface_id)
-{
-   TRACE_FUNC();
-
-#ifdef ENABLE_RENDER_SERVER
-   if (state.proxy_initialized) {
-      struct virgl_context *ctx = virgl_context_lookup(ctx_id);
-      if (!ctx)
-         return -EINVAL;
-      return proxy_context_get_iosurface_id(ctx, res_handle, out_iosurface_id);
-   }
-#endif
-
-   (void)ctx_id;
-   (void)res_handle;
-   (void)out_iosurface_id;
-   return -EINVAL;
 }
 
 void virgl_renderer_get_cap_set(uint32_t cap_set, uint32_t *max_ver,
@@ -1505,16 +1480,6 @@ virgl_renderer_resource_import_blob(const struct virgl_renderer_resource_import_
    res->map_size = args->size;
 
    return 0;
-}
-
-int
-virgl_renderer_resource_register_venus(uint32_t ctx_id, uint32_t res_id)
-{
-   struct virgl_context *ctx = virgl_context_lookup(ctx_id);
-   if (!ctx || ctx->capset_id != VIRTGPU_DRM_CAPSET_VENUS)
-      return -EINVAL;
-
-   return vkr_renderer_get_or_import_resource(ctx_id, res_id) ? 0 : -EINVAL;
 }
 
 int

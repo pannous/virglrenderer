@@ -30,11 +30,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #ifdef ENABLE_RENDER_SERVER_WORKER_THREAD
-#ifdef __APPLE__
-#include "threads_compat.h"
-#else
 #include <threads.h>
-#endif
 #endif
 #include <unistd.h>
 

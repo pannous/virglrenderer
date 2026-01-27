@@ -229,30 +229,6 @@ vkr_renderer_import_resource(uint32_t ctx_id,
    return vkr_context_import_resource(ctx, res_id, fd_type, fd, size);
 }
 
-bool
-vkr_renderer_get_or_import_resource(uint32_t ctx_id, uint32_t res_id)
-{
-   struct vkr_context *ctx = vkr_renderer_lookup_context(ctx_id);
-   if (!ctx)
-      return false;
-
-   return vkr_context_get_resource_or_import(ctx, res_id) != NULL;
-}
-
-bool
-vkr_renderer_get_resource_iosurface_id(uint32_t ctx_id,
-                                       uint32_t res_id,
-                                       uint32_t *out_iosurface_id)
-{
-   TRACE_FUNC();
-
-   struct vkr_context *ctx = vkr_renderer_lookup_context(ctx_id);
-   if (!ctx)
-      return false;
-
-   return vkr_context_get_resource_iosurface_id(ctx, res_id, out_iosurface_id);
-}
-
 void
 vkr_renderer_destroy_resource(uint32_t ctx_id, uint32_t res_id)
 {

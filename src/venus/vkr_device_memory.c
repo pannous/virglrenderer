@@ -19,7 +19,7 @@ vkr_get_fd_info_from_resource_info(struct vkr_context *ctx,
                                    const VkImportMemoryResourceInfoMESA *res_info,
                                    VkImportMemoryFdInfoKHR *out)
 {
-   struct vkr_resource *res = vkr_context_get_resource_or_import(ctx, res_info->resourceId);
+   struct vkr_resource *res = vkr_context_get_resource(ctx, res_info->resourceId);
    if (!res) {
       vkr_log("failed to import resource: invalid res_id %u", res_info->resourceId);
       vkr_context_set_fatal(ctx);
@@ -255,19 +255,17 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
    int imported_res_fd = -1;
    void *imported_res_ptr = NULL;
    uint64_t imported_res_size = 0;
-   uint32_t imported_res_id = 0;
    VkImportMemoryResourceInfoMESA *res_info = NULL;
    VkBaseInStructure *prev_of_res_info = vkr_find_prev_struct(
       alloc_info, VK_STRUCTURE_TYPE_IMPORT_MEMORY_RESOURCE_INFO_MESA);
    if (prev_of_res_info) {
       res_info = (VkImportMemoryResourceInfoMESA *)prev_of_res_info->pNext;
-      imported_res_id = res_info->resourceId;
 
       /* On macOS with host pointer import, translate resource import to host pointer import
        * instead of fd import, since MoltenVK doesn't support DMA_BUF or opaque fd.
        */
       if (physical_dev->use_host_pointer_import) {
-         struct vkr_resource *res = vkr_context_get_resource_or_import(ctx, res_info->resourceId);
+         struct vkr_resource *res = vkr_context_get_resource(ctx, res_info->resourceId);
          if (!res) {
             vkr_log("failed to import resource: invalid res_id %u", res_info->resourceId);
             vkr_context_set_fatal(ctx);
@@ -506,7 +504,6 @@ vkr_dispatch_vkAllocateMemory(struct vn_dispatch_context *dispatch,
    mem->shm_size = shm_size;
    mem->allocation_size = alloc_info->allocationSize;
    mem->memory_type_index = mem_type_index;
-   mem->imported_res_id = imported_res_id;
 }
 
 static void
@@ -556,7 +553,7 @@ vkr_dispatch_vkGetMemoryResourcePropertiesMESA(
    struct vkr_device *dev = vkr_device_from_handle(args->device);
    struct vn_device_proc_table *vk = &dev->proc_table;
 
-   struct vkr_resource *res = vkr_context_get_resource_or_import(ctx, args->resourceId);
+   struct vkr_resource *res = vkr_context_get_resource(ctx, args->resourceId);
    if (!res) {
       vkr_log("failed to query resource props: invalid res_id %u", args->resourceId);
       vkr_context_set_fatal(ctx);

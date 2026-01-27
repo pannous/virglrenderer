@@ -171,7 +171,6 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
       ext_count += physical_dev->EXT_external_memory_dma_buf;
    }
    ext_count += physical_dev->KHR_external_fence_fd;
-   ext_count += physical_dev->EXT_metal_objects;
 
    /* On MoltenVK, VK_KHR_portability_subset must always be enabled if advertised.
     * Check if guest didn't already request it. */
@@ -226,8 +225,6 @@ vkr_dispatch_vkCreateDevice(struct vn_dispatch_context *dispatch,
    }
    if (physical_dev->KHR_external_fence_fd)
       exts[ext_idx++] = "VK_KHR_external_fence_fd";
-   if (physical_dev->EXT_metal_objects)
-      exts[ext_idx++] = "VK_EXT_metal_objects";
    if (needs_portability_subset)
       exts[ext_idx++] = "VK_KHR_portability_subset";
 

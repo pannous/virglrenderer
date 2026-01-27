@@ -146,22 +146,6 @@ virgl_depends = [
    m_dep,
 ]
 
-if with_host_darwin
-   iosurface_dep = dependency('appleframeworks', modules: ['IOSurface'])
-   virgl_depends += [iosurface_dep]
-endif
-
-vulkan_inc = []
-if with_host_darwin and with_venus
-   vulkan_dep = dependency('vulkan', required: false)
-   if vulkan_dep.found()
-      vulkan_inc_dir = vulkan_dep.get_variable(pkgconfig: 'includedir', default_value: '')
-      if vulkan_inc_dir != ''
-         vulkan_inc = include_directories(vulkan_inc_dir)
-      endif
-   endif
-endif
-
 if with_tracing == 'perfetto'
    virgl_depends += [vperfetto_min_dep]
 endif
@@ -229,15 +213,14 @@ endif
 libvirgl = static_library(
    'virgl',
    virgl_sources,
-   include_directories: [inc_gallium, inc_configuration, 'venus', 'drm', vulkan_inc],
+   include_directories: [inc_gallium, inc_configuration, 'venus', 'drm'],
    dependencies : [virgl_depends, drm_uapi_dep],
 )
 
 libvirgl_inc = [
    inc_gallium,
    inc_configuration,
-   include_directories(['.', 'venus', 'drm']),
-   vulkan_inc,
+   include_directories(['.', 'venus', 'drm'])
 ]
 
 libvirgl_dep = declare_dependency(
@@ -248,7 +231,7 @@ libvirgl_dep = declare_dependency(
 libvirglrenderer = library(
    'virglrenderer',
    virglrenderer_sources,
-   include_directories: [inc_gallium, inc_configuration, vulkan_inc],
+   include_directories: [inc_gallium, inc_configuration],
    dependencies : [virgl_depends, libvirgl_dep, drm_uapi_dep],
    version : binary_age.to_string() + '.'
              + interface_age.to_string() + '.'
