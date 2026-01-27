@@ -229,11 +229,9 @@ render_socket_receive_request_internal(struct render_socket *socket,
     * 2. Receive exactly that many bytes with recvmsg for fds
     */
    struct stream_msg_header hdr;
-   render_log("render_receive_request: reading framing header, max_size=%zu", max_size);
    if (!render_socket_read_all(socket->fd, &hdr, sizeof(hdr)))
       return false;
 
-   render_log("render_receive_request: got header size=%u fd_count=%u", hdr.size, hdr.fd_count);
    if (hdr.size > max_size) {
       render_log("message too large: %u > %zu", hdr.size, max_size);
       return false;
@@ -453,7 +451,6 @@ render_socket_send_reply_internal(struct render_socket *socket,
       .size = (uint32_t)size,
       .fd_count = (uint32_t)fd_count,
    };
-   render_log("render_send_reply: sending framing header size=%u fd_count=%u", hdr.size, hdr.fd_count);
    if (!render_socket_write_all(socket->fd, &hdr, sizeof(hdr)))
       return false;
 #endif
@@ -480,7 +477,6 @@ render_socket_send_reply_internal(struct render_socket *socket,
       memcpy(CMSG_DATA(cmsg), fds, sizeof(*fds) * fd_count);
    }
 
-   render_log("render_send_reply: sending data size=%zu", size);
    return render_socket_sendmsg(socket, &msg);
 }
 
